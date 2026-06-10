@@ -9,19 +9,21 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from hypercube_divergence.experiments import DEFAULT_STRATEGIES, run_homogeneous_suite
-from hypercube_divergence.strategies import available_strategies
+from peak_divergence.experiments import DEFAULT_STRATEGIES, run_homogeneous_suite
+from peak_divergence.strategies import available_strategies
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Run Hypercube Divergence Game baseline experiments."
+        description="Run Peak-Divergence Game baseline experiments."
     )
     parser.add_argument("--agents", type=int, default=200)
-    parser.add_argument("--rounds", type=int, default=12)
-    parser.add_argument("--lambda-origin", type=float, default=0.35)
+    parser.add_argument("--rounds", type=int, default=14)
+    parser.add_argument("--peaks", type=int, default=12)
+    parser.add_argument("--beta-diversity", type=float, default=0.015)
+    parser.add_argument("--gamma-origin", type=float, default=0.010)
     parser.add_argument("--dimensions", type=int, default=10)
-    parser.add_argument("--seeds", type=int, default=10, help="Number of seeds to run.")
+    parser.add_argument("--seeds", type=int, default=10)
     parser.add_argument("--seed-start", type=int, default=0)
     parser.add_argument("--out", type=Path, default=Path("results/default"))
     parser.add_argument(
@@ -43,7 +45,9 @@ def main() -> None:
         out_dir=args.out,
         num_agents=args.agents,
         rounds=args.rounds,
-        lambda_origin=args.lambda_origin,
+        num_peaks=args.peaks,
+        beta_diversity=args.beta_diversity,
+        gamma_origin=args.gamma_origin,
         dimensions=args.dimensions,
         seeds=seeds,
         strategies=args.strategies,
@@ -62,9 +66,10 @@ def main() -> None:
         print(
             f"{strategy:25s} "
             f"score={metrics['mean_score_mean']:.3f} "
-            f"pairwise={metrics['mean_pairwise_distance_mean']:.3f} "
-            f"origin={metrics['mean_origin_mean']:.3f} "
-            f"coverage={metrics['corner_coverage_mean']:.1f}"
+            f"value={metrics['mean_value_mean']:.3f} "
+            f"diversity={metrics['mean_diversity_mean']:.3f} "
+            f"coverage={metrics['peak_coverage_mean']:.1f} "
+            f"max_occ={metrics['max_peak_occupancy_mean']:.1f}"
         )
 
 

@@ -1,1 +1,1 @@
-"""Test package for Hypercube Divergence Game."""
+"""Test package for Peak-Divergence Game."""

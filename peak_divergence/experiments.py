@@ -7,17 +7,19 @@ from pathlib import Path
 from statistics import mean, stdev
 from typing import Iterable
 
-from .core import GameConfig
+from .core import PeakGameConfig
 from .game import run_game
 from .strategies import available_strategies, make_population
 
 
 DEFAULT_STRATEGIES = (
-    "independent",
+    "random",
+    "random_corner",
     "origin_maximizer",
-    "corner_random",
-    "full_collaboration",
+    "independent_search",
+    "value_only",
     "diversity_only",
+    "full_collaboration",
     "random_collaboration",
     "strategic_collaboration",
 )
@@ -27,8 +29,10 @@ def run_homogeneous_suite(
     *,
     out_dir: Path,
     num_agents: int = 200,
-    rounds: int = 12,
-    lambda_origin: float = 0.35,
+    rounds: int = 14,
+    num_peaks: int = 12,
+    beta_diversity: float = 0.015,
+    gamma_origin: float = 0.010,
     seeds: Iterable[int] = range(10),
     strategies: Iterable[str] = DEFAULT_STRATEGIES,
     dimensions: int = 10,
@@ -36,20 +40,21 @@ def run_homogeneous_suite(
     delayed_observation: bool = False,
     write_agent_scores: bool = False,
 ) -> dict[str, dict[str, float]]:
-    """Run each strategy as a homogeneous population over repeated seeds."""
-
     out_dir.mkdir(parents=True, exist_ok=True)
     final_rows: list[dict[str, float | int | str]] = []
     round_rows: list[dict[str, float | int | str]] = []
+    peak_rows: list[dict[str, float | int | str]] = []
     agent_rows: list[dict[str, float | int | str]] = []
 
     for strategy_name in strategies:
         for seed in seeds:
-            config = GameConfig(
+            config = PeakGameConfig(
                 num_agents=num_agents,
                 dimensions=dimensions,
                 rounds=rounds,
-                lambda_origin=lambda_origin,
+                num_peaks=num_peaks,
+                beta_diversity=beta_diversity,
+                gamma_origin=gamma_origin,
                 observation_noise=observation_noise,
                 delayed_observation=delayed_observation,
             )
@@ -58,15 +63,16 @@ def run_homogeneous_suite(
                 config=config,
                 seed=int(seed),
             )
-            final_summary = result.final_summary()
             final_rows.append(
                 {
                     "strategy": strategy_name,
                     "seed": int(seed),
                     "num_agents": num_agents,
                     "rounds": rounds,
-                    "lambda_origin": lambda_origin,
-                    **final_summary,
+                    "num_peaks": num_peaks,
+                    "beta_diversity": beta_diversity,
+                    "gamma_origin": gamma_origin,
+                    **result.final_summary(),
                 }
             )
             for metrics in result.round_metrics:
@@ -76,8 +82,24 @@ def run_homogeneous_suite(
                         "seed": int(seed),
                         "num_agents": num_agents,
                         "rounds": rounds,
-                        "lambda_origin": lambda_origin,
+                        "num_peaks": num_peaks,
+                        "beta_diversity": beta_diversity,
+                        "gamma_origin": gamma_origin,
                         **metrics,
+                    }
+                )
+            for peak_id in range(num_peaks):
+                peak_rows.append(
+                    {
+                        "strategy": strategy_name,
+                        "seed": int(seed),
+                        "peak_id": peak_id,
+                        "height": float(result.landscape.heights[peak_id]),
+                        "width": float(result.landscape.widths[peak_id]),
+                        **{
+                            f"mu{k}": float(result.landscape.centers[peak_id, k])
+                            for k in range(dimensions)
+                        },
                     }
                 )
             if write_agent_scores:
@@ -92,6 +114,7 @@ def run_homogeneous_suite(
 
     _write_csv(out_dir / "final_metrics.csv", final_rows)
     _write_csv(out_dir / "round_metrics.csv", round_rows)
+    _write_csv(out_dir / "peaks.csv", peak_rows)
     if write_agent_scores:
         _write_csv(out_dir / "agent_scores.csv", agent_rows)
 
@@ -123,12 +146,14 @@ def _aggregate(
     metrics = [
         "mean_score",
         "best_score",
+        "mean_value",
+        "best_value",
         "mean_diversity",
         "mean_origin",
         "mean_pairwise_distance",
-        "corner_coverage",
-        "max_corner_occupancy",
-        "corner_entropy",
+        "peak_coverage",
+        "max_peak_occupancy",
+        "peak_entropy",
     ]
     summary: dict[str, dict[str, float]] = {}
     for group, group_rows in grouped.items():
@@ -147,10 +172,10 @@ def _summary_markdown(summary: dict[str, dict[str, float]]) -> str:
         reverse=True,
     )
     lines = [
-        "# Hypercube Divergence Summary",
+        "# Peak-Divergence Summary",
         "",
-        "| Strategy | Mean score | Pairwise | Origin | Coverage | Max occupancy |",
-        "| --- | ---: | ---: | ---: | ---: | ---: |",
+        "| Strategy | Mean score | Value | Diversity | Origin | Peak coverage | Max occupancy |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
     for strategy, metrics in ordered:
         lines.append(
@@ -159,12 +184,20 @@ def _summary_markdown(summary: dict[str, dict[str, float]]) -> str:
                 [
                     strategy,
                     f"{metrics['mean_score_mean']:.3f} +/- {metrics['mean_score_std']:.3f}",
-                    f"{metrics['mean_pairwise_distance_mean']:.3f}",
+                    f"{metrics['mean_value_mean']:.3f}",
+                    f"{metrics['mean_diversity_mean']:.3f}",
                     f"{metrics['mean_origin_mean']:.3f}",
-                    f"{metrics['corner_coverage_mean']:.1f}",
-                    f"{metrics['max_corner_occupancy_mean']:.1f}",
+                    f"{metrics['peak_coverage_mean']:.1f}",
+                    f"{metrics['max_peak_occupancy_mean']:.1f}",
                 ]
             )
             + " |"
         )
     return "\n".join(lines)
+
+
+def validate_strategy_names(strategies: Iterable[str]) -> None:
+    available = set(available_strategies())
+    unknown = sorted(set(strategies) - available)
+    if unknown:
+        raise ValueError(f"Unknown strategies: {unknown}. Available: {sorted(available)}")
