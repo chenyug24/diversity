@@ -17,7 +17,7 @@ DEFAULT_STRATEGIES = (
     "random_corner",
     "origin_maximizer",
     "independent_search",
-    "value_only",
+    "score_following",
     "diversity_only",
     "full_collaboration",
     "random_collaboration",

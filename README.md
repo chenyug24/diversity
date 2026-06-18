@@ -1,11 +1,13 @@
-# Peak-Divergence Game
+# Black-Box Peak-Divergence Game
 
-A multi-agent benchmark for strategic collaboration in quality-diversity search.
+A multi-agent benchmark for testing whether collaboration helps agents discover
+high-scoring but undercrowded solutions when the reward rule is not revealed.
 
-Hundreds of agents search in a bounded 10-dimensional space with hidden Gaussian
-peaks. A good agent must find high-value regions while avoiding overcrowded
-regions discovered by other agents. Collaboration is not fixed: each agent chooses
-how much to reveal and how much peer information to read at every round.
+Agents search in a bounded 10-dimensional space with hidden Gaussian-shaped
+peaks. The system computes a private quality-diversity score, but agents only see
+their own total score. Through optional read/share actions, agents may observe
+other agents' positions and total scores. They never observe hidden peak
+locations, the value component, the diversity component, or the scoring formula.
 
 ## Game
 
@@ -15,26 +17,47 @@ Each agent chooses a point:
 z_i in [0, 100]^10
 ```
 
-The hidden landscape contains `K` Gaussian peaks:
+The system secretly generates `K` hidden Gaussian-shaped peaks:
 
 ```text
 V(z) = max_m h_m * exp(-||z - mu_m||_2^2 / (2 * sigma_m^2))
 ```
 
-The final score is:
+The system evaluates each final point with:
 
 ```text
 S_i = V_i * (1 + beta_diversity * D_i + gamma_origin * O_i)
 ```
 
-where:
+where `V_i` is hidden value, `D_i` is average distance from other agents, and
+`O_i` is distance from the origin. These components are used for evaluation
+metrics, but they are not shown to agents.
 
-- `V_i` is hidden-landscape value.
-- `D_i` is average normalized L1 distance from other agents.
-- `O_i` is normalized distance from the origin.
+## Black-Box Information Setting
 
-The multiplicative score gates novelty by quality: a point that is far from
-everyone but has low value still scores poorly.
+Agents know:
+
+- The action space is 10-dimensional and bounded in `[0, 100]`.
+- They want to maximize their own total score.
+- They can choose how much to read and how much to share.
+- They receive their own total score after each round.
+
+Agents do not know:
+
+- The hidden peak locations, heights, or widths.
+- The scoring formula.
+- The value, diversity, or origin components of the score.
+- The population-level metrics.
+
+When collaboration reveals a peer, the observing agent sees only:
+
+```text
+(peer_position, peer_total_score)
+```
+
+This makes collaboration a source of uncertain information. Reading high-scoring
+peers can reveal useful regions, but it may also cause imitation and crowding.
+Sharing a good location can help others learn, but may attract competitors.
 
 ## Collaboration
 
@@ -46,20 +69,19 @@ read_i  in {0, 5, 20, 100, all}
 ```
 
 Sharing controls how many other agents may observe the agent. Reading controls
-how many visible peer states the agent receives. Observations include peer
-coordinates, value, and score, but hidden peak locations are never revealed.
+how many visible peer states the agent receives.
 
 ## Implemented Strategies
 
 - `random`: samples a fresh random point each round.
 - `random_corner`: chooses one random hypercube corner.
 - `origin_maximizer`: always chooses `(100, ..., 100)`.
-- `independent_search`: uses only its own value feedback and performs local search.
-- `value_only`: reads/shares all and follows the highest observed value.
-- `diversity_only`: spreads away from observed agents while ignoring value.
-- `full_collaboration`: reads/shares all and follows the highest observed total score.
-- `random_collaboration`: randomly chooses read/share levels and uses a value surrogate.
-- `strategic_collaboration`: reads more when value is low or early, shares less after finding value, and balances surrogate value against crowding.
+- `independent_search`: never reads or shares; locally searches from its own score history.
+- `score_following`: reads/shares all and follows the highest observed total score.
+- `diversity_only`: spreads away from observed agents while ignoring score.
+- `full_collaboration`: all agents read/share all and converge toward the highest observed total score.
+- `random_collaboration`: randomly chooses read/share levels and builds a local score surrogate.
+- `strategic_collaboration`: reads more when its own score is weak, shares less when its score is strong, and balances high-score imitation against crowd avoidance.
 
 ## Quick Start
 
@@ -79,9 +101,17 @@ python3 scripts/run_experiment.py \
 Outputs:
 
 - `results/default/final_metrics.csv`: one row per strategy and seed.
-- `results/default/round_metrics.csv`: round-by-round value, diversity, and peak coverage.
-- `results/default/peaks.csv`: hidden peak metadata for each seed.
+- `results/default/round_metrics.csv`: round-by-round diagnostic metrics.
+- `results/default/peaks.csv`: hidden peak metadata for analysis.
 - `results/default/summary.md`: ranked strategy summary.
+
+Generate figures from an experiment directory:
+
+```bash
+python3 scripts/plot_results.py \
+  --results results/default \
+  --out results/default/figures
+```
 
 ## Recommended Experiments
 
@@ -93,6 +123,7 @@ python3 scripts/run_experiment.py \
   --rounds 14 \
   --peaks 12 \
   --seeds 30 \
+  --write-agent-scores \
   --out results/main
 ```
 
@@ -107,15 +138,12 @@ python3 scripts/run_sweep.py \
   --out results/sweep
 ```
 
-The key hypothesis is that low `beta_diversity` settings mostly reward peak
-finding, so value-only or full-collaboration agents may perform well by crowding
-the highest peak. As diversity pressure increases, excessive collaboration should
-become less attractive, and selective collaboration should achieve a better
-quality-diversity tradeoff.
+The central hypothesis is:
 
-## Notes
+```text
+Collaboration helps agents discover high-scoring regions,
+but excessive collaboration causes imitation and overcrowding.
+Selective collaboration should perform best when diversity pressure is high.
+```
 
-The current agents are heuristic baselines, not trained neural policies. They are
-designed to make the benchmark runnable and to expose the main strategic tension:
-finding valuable peaks is useful, but crowded peaks become less attractive as
-diversity pressure rises.
+See [PROPOSAL.md](PROPOSAL.md) for the full project proposal.

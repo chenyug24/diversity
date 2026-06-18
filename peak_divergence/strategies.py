@@ -32,22 +32,30 @@ def _coordinate_best_response(
     config: PeakGameConfig,
 ) -> np.ndarray:
     if observed_positions.size == 0:
-        return _random_corner(np.random.default_rng(), config)
+        return np.full(config.dimensions, config.upper, dtype=float)
     means = observed_positions.mean(axis=0)
     return np.where(means <= config.upper / 2.0, config.upper, config.lower).astype(float)
 
 
-def _surrogate_value(
+def _surrogate_score(
     candidates: np.ndarray,
     anchor_positions: np.ndarray,
-    anchor_values: np.ndarray,
+    anchor_scores: np.ndarray,
     length_scale: float,
 ) -> np.ndarray:
-    if anchor_positions.size == 0 or anchor_values.size == 0:
+    """Black-box score model from observed position/score pairs.
+
+    Agents do not know the hidden value function or scoring formula. This local
+    radial surrogate only says: points close to previously high-scoring points
+    are expected to score well.
+    """
+
+    if anchor_positions.size == 0 or anchor_scores.size == 0:
         return np.zeros(candidates.shape[0], dtype=float)
+    scores = np.maximum(anchor_scores, 0.0)
     deltas = candidates[:, None, :] - anchor_positions[None, :, :]
     squared_l2 = np.sum(deltas * deltas, axis=2)
-    contributions = anchor_values[None, :] * np.exp(-squared_l2 / (2.0 * length_scale**2))
+    contributions = scores[None, :] * np.exp(-squared_l2 / (2.0 * length_scale**2))
     return contributions.max(axis=1)
 
 
@@ -129,32 +137,27 @@ def _soft_top_choice(
 class MemoryMixin:
     memory_limit: int = 180
     memory_positions: list[np.ndarray] = field(default_factory=list)
-    memory_values: list[float] = field(default_factory=list)
     memory_scores: list[float] = field(default_factory=list)
 
     def remember(
         self,
         position: np.ndarray,
-        value: float,
         score: float,
         observed_positions: np.ndarray,
-        observed_values: np.ndarray,
         observed_scores: np.ndarray,
         rng: np.random.Generator,
     ) -> None:
         self.memory_positions.append(position.copy())
-        self.memory_values.append(float(value))
         self.memory_scores.append(float(score))
-        for pos, val, scr in zip(observed_positions, observed_values, observed_scores):
+        for pos, scr in zip(observed_positions, observed_scores):
             self.memory_positions.append(pos.copy())
-            self.memory_values.append(float(val))
             self.memory_scores.append(float(scr))
 
         if len(self.memory_positions) > self.memory_limit:
-            values = np.array(self.memory_values)
-            elite_count = min(self.memory_limit // 2, len(values))
-            elite_indices = np.argsort(values)[-elite_count:]
-            remaining = np.setdiff1d(np.arange(len(values)), elite_indices, assume_unique=False)
+            scores = np.array(self.memory_scores)
+            elite_count = min(self.memory_limit // 2, len(scores))
+            elite_indices = np.argsort(scores)[-elite_count:]
+            remaining = np.setdiff1d(np.arange(len(scores)), elite_indices, assume_unique=False)
             random_count = self.memory_limit - elite_count
             if len(remaining) > random_count:
                 random_indices = rng.choice(remaining, size=random_count, replace=False)
@@ -162,28 +165,27 @@ class MemoryMixin:
                 random_indices = remaining
             keep = np.concatenate([elite_indices, random_indices]).astype(int)
             self.memory_positions = [self.memory_positions[int(idx)] for idx in keep]
-            self.memory_values = [self.memory_values[int(idx)] for idx in keep]
             self.memory_scores = [self.memory_scores[int(idx)] for idx in keep]
 
-    def memory_arrays(self, config: PeakGameConfig) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def memory_arrays(self, config: PeakGameConfig) -> tuple[np.ndarray, np.ndarray]:
         if not self.memory_positions:
-            return (
-                np.empty((0, config.dimensions)),
-                np.empty(0),
-                np.empty(0),
-            )
+            return np.empty((0, config.dimensions)), np.empty(0)
         return (
             np.vstack(self.memory_positions).astype(float),
-            np.array(self.memory_values, dtype=float),
             np.array(self.memory_scores, dtype=float),
         )
 
-    def top_value_anchors(self, config: PeakGameConfig, max_count: int = 60) -> np.ndarray:
-        positions, values, _ = self.memory_arrays(config)
+    def top_score_anchors(self, config: PeakGameConfig, max_count: int = 60) -> np.ndarray:
+        positions, scores = self.memory_arrays(config)
         if positions.size == 0:
             return positions
-        count = min(max_count, len(values))
-        return positions[np.argsort(values)[-count:]]
+        count = min(max_count, len(scores))
+        return positions[np.argsort(scores)[-count:]]
+
+    def score_quantile(self, quantile: float, default: float = 0.0) -> float:
+        if not self.memory_scores:
+            return default
+        return float(np.quantile(np.array(self.memory_scores, dtype=float), quantile))
 
 
 class Strategy:
@@ -202,12 +204,8 @@ class Strategy:
         round_index: int,
         position: np.ndarray,
         score: float,
-        value: float,
-        diversity: float,
-        origin: float,
         config: PeakGameConfig,
         rng: np.random.Generator,
-        previous_metrics: dict[str, float] | None,
     ) -> CollaborationAction:
         return CollaborationAction(share=0, read=0)
 
@@ -280,7 +278,7 @@ class OriginMaximizerStrategy(Strategy):
 @dataclass
 class IndependentSearchStrategy(MemoryMixin, Strategy):
     name = "independent_search"
-    memory_limit: int = 60
+    memory_limit: int = 80
 
     def update_position(
         self,
@@ -290,16 +288,14 @@ class IndependentSearchStrategy(MemoryMixin, Strategy):
     ) -> np.ndarray:
         self.remember(
             observation.own_position,
-            observation.own_value,
             observation.own_score,
             observation.observed_positions,
-            observation.observed_values,
             observation.observed_scores,
             rng,
         )
-        anchors = self.top_value_anchors(config, max_count=8)
+        anchors = self.top_score_anchors(config, max_count=10)
         progress = observation.round_index / max(1, config.rounds - 1)
-        if anchors.size == 0 or rng.random() < 0.18 * (1.0 - progress):
+        if anchors.size == 0 or rng.random() < 0.20 * (1.0 - progress):
             return rng.uniform(config.lower, config.upper, size=config.dimensions)
         center = anchors[-1]
         scale = max(3.5, 24.0 * (1.0 - progress))
@@ -307,9 +303,9 @@ class IndependentSearchStrategy(MemoryMixin, Strategy):
 
 
 @dataclass
-class ValueOnlyStrategy(MemoryMixin, Strategy):
-    name = "value_only"
-    memory_limit: int = 240
+class ScoreFollowingStrategy(MemoryMixin, Strategy):
+    name = "score_following"
+    memory_limit: int = 260
 
     def choose_collaboration(self, *args, **kwargs) -> CollaborationAction:
         return CollaborationAction(share="all", read="all")
@@ -322,15 +318,13 @@ class ValueOnlyStrategy(MemoryMixin, Strategy):
     ) -> np.ndarray:
         self.remember(
             observation.own_position,
-            observation.own_value,
             observation.own_score,
             observation.observed_positions,
-            observation.observed_values,
             observation.observed_scores,
             rng,
         )
-        positions, values, _ = self.memory_arrays(config)
-        best_position = positions[int(np.argmax(values))]
+        positions, scores = self.memory_arrays(config)
+        best_position = positions[int(np.argmax(scores))]
         progress = observation.round_index / max(1, config.rounds - 1)
         scale = max(2.0, 18.0 * (1.0 - progress))
         return _clip(best_position + rng.normal(0.0, scale, size=config.dimensions), config)
@@ -344,12 +338,8 @@ class DiversityOnlyStrategy(Strategy):
         round_index: int,
         position: np.ndarray,
         score: float,
-        value: float,
-        diversity: float,
-        origin: float,
         config: PeakGameConfig,
         rng: np.random.Generator,
-        previous_metrics: dict[str, float] | None,
     ) -> CollaborationAction:
         return CollaborationAction(
             share=_level_for_target(20, config),
@@ -370,7 +360,7 @@ class DiversityOnlyStrategy(Strategy):
 @dataclass
 class FullCollaborationStrategy(MemoryMixin, Strategy):
     name = "full_collaboration"
-    memory_limit: int = 400
+    memory_limit: int = 420
 
     def choose_collaboration(self, *args, **kwargs) -> CollaborationAction:
         return CollaborationAction(share="all", read="all")
@@ -383,36 +373,30 @@ class FullCollaborationStrategy(MemoryMixin, Strategy):
     ) -> np.ndarray:
         self.remember(
             observation.own_position,
-            observation.own_value,
             observation.own_score,
             observation.observed_positions,
-            observation.observed_values,
             observation.observed_scores,
             rng,
         )
-        positions, _, scores = self.memory_arrays(config)
+        positions, scores = self.memory_arrays(config)
         best_position = positions[int(np.argmax(scores))]
         progress = observation.round_index / max(1, config.rounds - 1)
-        scale = max(1.0, 10.0 * (1.0 - progress))
+        scale = max(1.0, 9.0 * (1.0 - progress))
         return _clip(best_position + rng.normal(0.0, scale, size=config.dimensions), config)
 
 
 @dataclass
 class RandomCollaborationStrategy(MemoryMixin, Strategy):
     name = "random_collaboration"
-    memory_limit: int = 180
+    memory_limit: int = 200
 
     def choose_collaboration(
         self,
         round_index: int,
         position: np.ndarray,
         score: float,
-        value: float,
-        diversity: float,
-        origin: float,
         config: PeakGameConfig,
         rng: np.random.Generator,
-        previous_metrics: dict[str, float] | None,
     ) -> CollaborationAction:
         return CollaborationAction(
             share=_sample_level(rng, config),
@@ -427,69 +411,58 @@ class RandomCollaborationStrategy(MemoryMixin, Strategy):
     ) -> np.ndarray:
         self.remember(
             observation.own_position,
-            observation.own_value,
             observation.own_score,
             observation.observed_positions,
-            observation.observed_values,
             observation.observed_scores,
             rng,
         )
-        positions, values, _ = self.memory_arrays(config)
+        positions, scores = self.memory_arrays(config)
         progress = observation.round_index / max(1, config.rounds - 1)
-        anchors = self.top_value_anchors(config, max_count=50)
+        anchors = self.top_score_anchors(config, max_count=55)
         candidates = _candidate_pool(
             rng,
             config,
             observation.own_position,
             anchors,
-            count=180,
+            count=190,
             progress=progress,
         )
-        v_hat = _surrogate_value(candidates, positions, values, length_scale=24.0)
-        mean_distance, nearest_distance = _distance_terms(
+        score_hat = _surrogate_score(candidates, positions, scores, length_scale=24.0)
+        _, nearest_distance = _distance_terms(
             candidates,
             observation.observed_positions,
             config,
         )
-        origin = candidates.mean(axis=1)
-        scores = v_hat * (
-            1.0
-            + config.beta_diversity * (0.75 * mean_distance + 0.25 * nearest_distance)
-            + config.gamma_origin * origin
-        )
-        scores += rng.normal(0.0, max(1.0, 8.0 * (1.0 - progress)), size=scores.shape)
-        return _soft_top_choice(candidates, scores, rng, top_k=16, temperature=8.0)
+        estimated_scores = score_hat + 0.45 * nearest_distance
+        estimated_scores += rng.normal(0.0, max(1.0, 8.0 * (1.0 - progress)), size=len(candidates))
+        return _soft_top_choice(candidates, estimated_scores, rng, top_k=16, temperature=8.0)
 
 
 @dataclass
 class StrategicCollaborationStrategy(MemoryMixin, Strategy):
     name = "strategic_collaboration"
-    memory_limit: int = 320
+    memory_limit: int = 340
 
     def choose_collaboration(
         self,
         round_index: int,
         position: np.ndarray,
         score: float,
-        value: float,
-        diversity: float,
-        origin: float,
         config: PeakGameConfig,
         rng: np.random.Generator,
-        previous_metrics: dict[str, float] | None,
     ) -> CollaborationAction:
         progress = round_index / max(1, config.rounds - 1)
-        expected_peak_value = 0.35 * config.peak_height_range[1]
-        is_low_value = value < expected_peak_value
+        low_score = score < self.score_quantile(0.45, default=float("inf"))
+        high_score = score >= self.score_quantile(0.75, default=float("inf"))
 
-        if progress < 0.25 or is_low_value:
-            return CollaborationAction(
-                share=_level_for_target(20, config),
-                read=_level_for_target(100, config),
-            )
+        if progress < 0.25 or low_score:
+            share: Level = _level_for_target(20, config)
+            if high_score and progress > 0.20:
+                share = _level_for_target(5, config)
+            return CollaborationAction(share=share, read=_level_for_target(100, config))
         if progress < 0.65:
             return CollaborationAction(
-                share=_level_for_target(5, config),
+                share=0 if high_score else _level_for_target(5, config),
                 read=_level_for_target(20, config),
             )
         if progress < 0.90:
@@ -504,43 +477,37 @@ class StrategicCollaborationStrategy(MemoryMixin, Strategy):
     ) -> np.ndarray:
         self.remember(
             observation.own_position,
-            observation.own_value,
             observation.own_score,
             observation.observed_positions,
-            observation.observed_values,
             observation.observed_scores,
             rng,
         )
-        positions, values, scores_seen = self.memory_arrays(config)
+        positions, scores_seen = self.memory_arrays(config)
         progress = observation.round_index / max(1, config.rounds - 1)
-        anchors = self.top_value_anchors(config, max_count=80)
+        anchors = self.top_score_anchors(config, max_count=90)
         candidates = _candidate_pool(
             rng,
             config,
             observation.own_position,
             anchors,
-            count=320,
+            count=340,
             progress=progress,
         )
 
-        value_length_scale = 26.0 if progress < 0.5 else 18.0
-        v_hat = _surrogate_value(candidates, positions, values, length_scale=value_length_scale)
+        length_scale = 28.0 if progress < 0.50 else 18.0
+        score_hat = _surrogate_score(candidates, positions, scores_seen, length_scale=length_scale)
         local_reference = observation.observed_positions
         if local_reference.size == 0 and positions.size:
             top_score_count = min(80, len(scores_seen))
             local_reference = positions[np.argsort(scores_seen)[-top_score_count:]]
 
         mean_distance, nearest_distance = _distance_terms(candidates, local_reference, config)
-        origin = candidates.mean(axis=1)
-        estimated_multiplier = (
-            1.0
-            + config.beta_diversity * (0.55 * mean_distance + 0.45 * nearest_distance)
-            + config.gamma_origin * origin
-        )
-        crowd_penalty = np.maximum(0.0, 18.0 - nearest_distance)
-        estimated_scores = v_hat * estimated_multiplier - 0.75 * crowd_penalty
+        crowd_bonus = 0.25 * mean_distance + 0.75 * nearest_distance
+        crowd_penalty = np.maximum(0.0, 16.0 - nearest_distance)
+        estimated_scores = score_hat + 0.70 * crowd_bonus - 1.10 * crowd_penalty
 
-        if observation.own_value < 0.25 * config.peak_height_range[1]:
+        score_threshold = self.score_quantile(0.40, default=float("inf"))
+        if observation.own_score < score_threshold:
             estimated_scores += rng.normal(0.0, 10.0 * (1.0 - progress), size=len(candidates))
         else:
             estimated_scores += rng.normal(0.0, 3.0 * (1.0 - progress), size=len(candidates))
@@ -562,7 +529,7 @@ _STRATEGIES: dict[str, StrategyFactory] = {
     "random_corner": RandomCornerStrategy,
     "origin_maximizer": OriginMaximizerStrategy,
     "independent_search": IndependentSearchStrategy,
-    "value_only": ValueOnlyStrategy,
+    "score_following": ScoreFollowingStrategy,
     "diversity_only": DiversityOnlyStrategy,
     "full_collaboration": FullCollaborationStrategy,
     "random_collaboration": RandomCollaborationStrategy,

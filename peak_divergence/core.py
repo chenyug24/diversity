@@ -53,14 +53,9 @@ class PeakObservation:
     agent_id: int
     own_position: np.ndarray
     own_score: float
-    own_value: float
-    own_diversity: float
-    own_origin: float
     observed_ids: np.ndarray
     observed_positions: np.ndarray
     observed_scores: np.ndarray
-    observed_values: np.ndarray
-    previous_metrics: dict[str, float] | None = None
 
 
 @dataclass

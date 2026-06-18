@@ -182,15 +182,14 @@ def _visible_sources_by_reader(
 def _allocate_observations(
     positions: np.ndarray,
     scores: np.ndarray,
-    values: np.ndarray,
     share_levels: Sequence[Level],
     read_levels: Sequence[Level],
     rng: np.random.Generator,
     config: PeakGameConfig,
-) -> list[tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]]:
+) -> list[tuple[np.ndarray, np.ndarray, np.ndarray]]:
     num_agents = positions.shape[0]
     visible_sources = _visible_sources_by_reader(share_levels, rng)
-    observations: list[tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]] = []
+    observations: list[tuple[np.ndarray, np.ndarray, np.ndarray]] = []
 
     for reader_id, visible in enumerate(visible_sources):
         read_capacity = level_to_capacity(read_levels[reader_id], num_agents)
@@ -213,14 +212,7 @@ def _allocate_observations(
             )
             observed_positions = np.clip(observed_positions, config.lower, config.upper)
 
-        observations.append(
-            (
-                observed_ids,
-                observed_positions,
-                scores[observed_ids].copy(),
-                values[observed_ids].copy(),
-            )
-        )
+        observations.append((observed_ids, observed_positions, scores[observed_ids].copy()))
 
     return observations
 
@@ -253,8 +245,7 @@ def run_game(
     positions = np.clip(positions.astype(float), config.lower, config.upper)
 
     round_metrics: list[dict[str, Any]] = []
-    previous_metrics: dict[str, float] | None = None
-    previous_state: tuple[np.ndarray, np.ndarray, np.ndarray] | None = None
+    previous_state: tuple[np.ndarray, np.ndarray] | None = None
 
     for round_index in range(config.rounds):
         scores, values, diversity, origin, _, _ = score_positions(positions, landscape, config)
@@ -263,12 +254,8 @@ def run_game(
                 round_index=round_index,
                 position=positions[agent_id].copy(),
                 score=float(scores[agent_id]),
-                value=float(values[agent_id]),
-                diversity=float(diversity[agent_id]),
-                origin=float(origin[agent_id]),
                 config=config,
                 rng=agent_rngs[agent_id],
-                previous_metrics=previous_metrics,
             )
             for agent_id, strategy in enumerate(strategies)
         ]
@@ -276,16 +263,14 @@ def run_game(
         read_levels = [action.read for action in actions]
 
         if config.delayed_observation and previous_state is not None:
-            observable_positions, observable_scores, observable_values = previous_state
+            observable_positions, observable_scores = previous_state
         else:
             observable_positions = positions
             observable_scores = scores
-            observable_values = values
 
         allocated = _allocate_observations(
             observable_positions,
             observable_scores,
-            observable_values,
             share_levels,
             read_levels,
             rng,
@@ -294,20 +279,15 @@ def run_game(
 
         next_positions = []
         for agent_id, strategy in enumerate(strategies):
-            observed_ids, observed_positions, observed_scores, observed_values = allocated[agent_id]
+            observed_ids, observed_positions, observed_scores = allocated[agent_id]
             observation = PeakObservation(
                 round_index=round_index,
                 agent_id=agent_id,
                 own_position=positions[agent_id].copy(),
                 own_score=float(scores[agent_id]),
-                own_value=float(values[agent_id]),
-                own_diversity=float(diversity[agent_id]),
-                own_origin=float(origin[agent_id]),
                 observed_ids=observed_ids,
                 observed_positions=observed_positions,
                 observed_scores=observed_scores,
-                observed_values=observed_values,
-                previous_metrics=previous_metrics,
             )
             next_position = strategy.update_position(
                 observation=observation,
@@ -316,7 +296,7 @@ def run_game(
             )
             next_positions.append(next_position)
 
-        previous_state = (positions.copy(), scores.copy(), values.copy())
+        previous_state = (positions.copy(), scores.copy())
         positions = np.clip(np.vstack(next_positions).astype(float), config.lower, config.upper)
         metrics = summarize_positions(
             positions,
@@ -327,7 +307,6 @@ def run_game(
         )
         metrics["round"] = round_index
         round_metrics.append(metrics)
-        previous_metrics = metrics
 
     final_scores, final_values, final_diversity, final_origin, final_peak_ids, _ = score_positions(
         positions, landscape, config

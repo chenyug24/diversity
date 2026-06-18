@@ -4,7 +4,18 @@ import numpy as np
 
 from peak_divergence.core import PeakGameConfig, PeakLandscape
 from peak_divergence.game import level_to_capacity, run_game, score_positions, value_positions
-from peak_divergence.strategies import make_population
+from peak_divergence.strategies import Strategy, make_population
+
+
+class ObservationInspectorStrategy(Strategy):
+    name = "observation_inspector"
+
+    def update_position(self, observation, rng, config):
+        assert not hasattr(observation, "own_value")
+        assert not hasattr(observation, "own_diversity")
+        assert not hasattr(observation, "own_origin")
+        assert not hasattr(observation, "observed_values")
+        return observation.own_position
 
 
 class PeakDivergenceGameTests(unittest.TestCase):
@@ -45,6 +56,10 @@ class PeakDivergenceGameTests(unittest.TestCase):
         second = run_game(make_population("independent_search", 16), config, seed=5)
         self.assertTrue(np.allclose(first.positions, second.positions))
         self.assertTrue(np.allclose(first.final_scores, second.final_scores))
+
+    def test_agent_observation_is_black_box(self):
+        config = PeakGameConfig(num_agents=6, dimensions=3, rounds=2, num_peaks=2)
+        run_game([ObservationInspectorStrategy() for _ in range(6)], config, seed=12)
 
 
 if __name__ == "__main__":
