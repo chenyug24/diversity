@@ -35,6 +35,7 @@ STRATEGY_LABELS = {
     "full_collaboration": "Full collab",
     "random_collaboration": "Random collab",
     "strategic_collaboration": "Strategic collab",
+    "llm_blackbox": "LLM black-box",
 }
 
 

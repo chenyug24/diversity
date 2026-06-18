@@ -3,7 +3,7 @@ name = "peak-divergence"
 version = "0.1.0"
 description = "Peak-Divergence Game multi-agent quality-diversity benchmark."
 requires-python = ">=3.11"
-dependencies = ["numpy>=1.24"]
+dependencies = ["numpy>=1.24", "openai>=1.0"]
 
 [tool.ruff]
 line-length = 100

@@ -176,6 +176,11 @@ Random Collaboration:
 Strategic Collaboration:
   Reads more when its own score is weak, shares less when its score is strong,
   and trades off high-score imitation against crowd avoidance.
+
+LLM Black-Box Agent:
+  Uses a language model API to choose positions from the same black-box
+  observations: own position, own total score, and observed peer
+  (position, total score) pairs.
 ```
 
 ## 8. Evaluation Metrics

@@ -22,6 +22,7 @@ LABELS = {
     "strategic_collaboration": "Strategic collab",
     "independent_search": "Independent",
     "random": "Random",
+    "llm_blackbox": "LLM black-box",
 }
 
 COLORS = {
@@ -30,6 +31,7 @@ COLORS = {
     "strategic_collaboration": "#2ca02c",
     "independent_search": "#d62728",
     "random": "#9467bd",
+    "llm_blackbox": "#8c564b",
 }
 
 

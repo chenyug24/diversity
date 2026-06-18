@@ -6,6 +6,14 @@ from typing import Callable
 import numpy as np
 
 from .core import CollaborationAction, Level, PeakGameConfig, PeakObservation
+from .llm_agent import (
+    LLMDecision,
+    build_llm_prompt,
+    call_openai_llm,
+    decision_to_action,
+    fallback_decision,
+    parse_llm_decision,
+)
 
 
 def _level_for_target(target: int, config: PeakGameConfig) -> Level:
@@ -521,6 +529,55 @@ class StrategicCollaborationStrategy(MemoryMixin, Strategy):
         )
 
 
+@dataclass
+class LLMBlackBoxStrategy(Strategy):
+    """OpenAI-backed black-box agent.
+
+    The LLM only sees total scores and positions. It does not receive hidden
+    value, diversity, origin, peak, or scoring-formula information.
+    """
+
+    name = "llm_blackbox"
+    model: str | None = None
+    history_limit: int = 12
+    fail_open: bool = False
+    pending_action: CollaborationAction = field(
+        default_factory=lambda: CollaborationAction(share=5, read=20)
+    )
+    history: list[tuple[np.ndarray, float]] = field(default_factory=list)
+
+    def choose_collaboration(
+        self,
+        round_index: int,
+        position: np.ndarray,
+        score: float,
+        config: PeakGameConfig,
+        rng: np.random.Generator,
+    ) -> CollaborationAction:
+        return self.pending_action
+
+    def update_position(
+        self,
+        observation: PeakObservation,
+        rng: np.random.Generator,
+        config: PeakGameConfig,
+    ) -> np.ndarray:
+        self.history.append((observation.own_position.copy(), float(observation.own_score)))
+        self.history = self.history[-self.history_limit :]
+        prompt = build_llm_prompt(observation, config, self.history)
+
+        try:
+            output = call_openai_llm(prompt=prompt, model=self.model)
+            decision = parse_llm_decision(output, config)
+        except Exception:
+            if not self.fail_open:
+                raise
+            decision = fallback_decision(observation, rng, config)
+
+        self.pending_action = decision_to_action(decision)
+        return decision.position
+
+
 StrategyFactory = Callable[[], Strategy]
 
 
@@ -534,6 +591,7 @@ _STRATEGIES: dict[str, StrategyFactory] = {
     "full_collaboration": FullCollaborationStrategy,
     "random_collaboration": RandomCollaborationStrategy,
     "strategic_collaboration": StrategicCollaborationStrategy,
+    "llm_blackbox": LLMBlackBoxStrategy,
 }
 
 

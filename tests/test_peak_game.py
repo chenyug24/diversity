@@ -4,6 +4,7 @@ import numpy as np
 
 from peak_divergence.core import PeakGameConfig, PeakLandscape
 from peak_divergence.game import level_to_capacity, run_game, score_positions, value_positions
+from peak_divergence.llm_agent import build_llm_prompt, parse_llm_decision
 from peak_divergence.strategies import Strategy, make_population
 
 
@@ -60,6 +61,31 @@ class PeakDivergenceGameTests(unittest.TestCase):
     def test_agent_observation_is_black_box(self):
         config = PeakGameConfig(num_agents=6, dimensions=3, rounds=2, num_peaks=2)
         run_game([ObservationInspectorStrategy() for _ in range(6)], config, seed=12)
+
+    def test_parse_llm_decision_clips_position(self):
+        config = PeakGameConfig(num_agents=4, dimensions=3)
+        decision = parse_llm_decision(
+            '{"position":[-5,50,123],"next_share":5,"next_read":"all"}',
+            config,
+        )
+        self.assertTrue(np.allclose(decision.position, [0.0, 50.0, 100.0]))
+        self.assertEqual(decision.next_share, 5)
+        self.assertEqual(decision.next_read, "all")
+
+    def test_llm_prompt_does_not_reveal_score_formula(self):
+        config = PeakGameConfig(num_agents=6, dimensions=3, rounds=2, num_peaks=2)
+        captured = {}
+
+        class PromptInspectorStrategy(Strategy):
+            def update_position(self, observation, rng, config):
+                captured["prompt"] = build_llm_prompt(observation, config, [])
+                return observation.own_position
+
+        run_game([PromptInspectorStrategy() for _ in range(6)], config, seed=14)
+        prompt = captured["prompt"]
+        self.assertIn("You do not know the scoring formula", prompt)
+        self.assertNotIn("beta_diversity", prompt)
+        self.assertNotIn("gamma_origin", prompt)
 
 
 if __name__ == "__main__":

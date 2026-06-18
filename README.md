@@ -82,6 +82,7 @@ how many visible peer states the agent receives.
 - `full_collaboration`: all agents read/share all and converge toward the highest observed total score.
 - `random_collaboration`: randomly chooses read/share levels and builds a local score surrogate.
 - `strategic_collaboration`: reads more when its own score is weak, shares less when its score is strong, and balances high-score imitation against crowd avoidance.
+- `llm_blackbox`: calls the OpenAI API each round to choose a position from black-box observations.
 
 ## Quick Start
 
@@ -112,6 +113,31 @@ python3 scripts/plot_results.py \
   --results results/default \
   --out results/default/figures
 ```
+
+## Running an OpenAI Agent
+
+Install dependencies and set your API key:
+
+```bash
+pip install -e .
+export OPENAI_API_KEY="your_api_key"
+export OPENAI_AGENT_MODEL="gpt-5.5"
+```
+
+Run a small LLM-backed experiment first:
+
+```bash
+python3 scripts/run_experiment.py \
+  --agents 3 \
+  --rounds 2 \
+  --peaks 3 \
+  --seeds 1 \
+  --strategies llm_blackbox \
+  --out results/llm_demo
+```
+
+Each `llm_blackbox` agent calls the OpenAI API once per round. Large runs can
+produce many API calls, so start small before scaling up.
 
 ## Recommended Experiments
 

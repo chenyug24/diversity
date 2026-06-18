@@ -22,6 +22,7 @@ STRATEGY_LABELS = {
     "score_following": "Score following",
     "full_collaboration": "Full collab",
     "strategic_collaboration": "Strategic collab",
+    "llm_blackbox": "LLM black-box",
 }
 
 
