@@ -435,6 +435,11 @@ def write_metrics_csv(
             "score_upper_bound",
             "system_optimization",
             "global_optimum",
+            "best_value_found",
+            "best_value_found_ratio",
+            "best_value_found_gap",
+            "best_value_found_round",
+            "best_value_found_agent_id",
             "best_value_ratio",
             "optimality_gap",
             "mean_value",
@@ -465,6 +470,13 @@ def write_metrics_csv(
             else:
                 peak_coverage = 0.0
                 max_peak_occupancy = 0.0
+            best_seen_flat = int(np.argmax(value_history[: round_index + 1]))
+            best_seen_round, best_seen_agent = np.unravel_index(
+                best_seen_flat,
+                value_history[: round_index + 1].shape,
+            )
+            best_seen_value = float(value_history[best_seen_round, best_seen_agent])
+            global_optimum = score_upper_bound(landscape, config)
             communication = (
                 communication_history[round_index]
                 if round_index < len(communication_history)
@@ -496,7 +508,14 @@ def write_metrics_csv(
                         landscape,
                         config,
                     ),
-                    "global_optimum": score_upper_bound(landscape, config),
+                    "global_optimum": global_optimum,
+                    "best_value_found": best_seen_value,
+                    "best_value_found_ratio": (
+                        best_seen_value / global_optimum if global_optimum > 0.0 else 0.0
+                    ),
+                    "best_value_found_gap": max(0.0, global_optimum - best_seen_value),
+                    "best_value_found_round": int(best_seen_round),
+                    "best_value_found_agent_id": int(best_seen_agent),
                     "best_value_ratio": best_value_ratio(
                         value_history[round_index],
                         landscape,
@@ -557,6 +576,7 @@ def write_system_performance_plot(
     mean_score = score_history.mean(axis=1)
     mean_value = value_history.mean(axis=1)
     best_value = value_history.max(axis=1)
+    best_value_found = np.maximum.accumulate(best_value)
     mean_diversity = diversity_history.mean(axis=1)
     system_optimization = np.array(
         [
@@ -564,12 +584,7 @@ def write_system_performance_plot(
             for round_index in range(history.shape[0])
         ]
     )
-    best_ratio = np.array(
-        [
-            best_value_ratio(value_history[round_index], landscape)
-            for round_index in range(history.shape[0])
-        ]
-    )
+    best_found_ratio = best_value_found / upper_bound if upper_bound > 0.0 else best_value_found
 
     fig, (ax_top, ax_bottom) = plt.subplots(
         2,
@@ -582,12 +597,12 @@ def write_system_performance_plot(
 
     ax_top.plot(
         rounds,
-        best_ratio * 100.0,
+        best_found_ratio * 100.0,
         color="#2563eb",
         linewidth=2.4,
         marker="o",
         markersize=4,
-        label="best value / global optimum",
+        label="best value found so far / global optimum",
     )
     ax_top.plot(
         rounds,
@@ -598,7 +613,7 @@ def write_system_performance_plot(
         markersize=3,
         label="mean value / global optimum",
     )
-    ax_top.fill_between(rounds, best_ratio * 100.0, color="#93c5fd", alpha=0.25)
+    ax_top.fill_between(rounds, best_found_ratio * 100.0, color="#93c5fd", alpha=0.25)
     ax_top.set_ylabel("Optimality (%)")
     ax_top.set_title(
         "Progress Toward Global Optimum",
@@ -607,7 +622,7 @@ def write_system_performance_plot(
         fontweight="bold",
     )
     ax_top.grid(True, alpha=0.24)
-    ax_top.set_ylim(0.0, max(100.0, float(np.max(best_ratio * 100.0)) * 1.10))
+    ax_top.set_ylim(0.0, max(100.0, float(np.max(best_found_ratio * 100.0)) * 1.10))
     ax_top.text(
         0.01,
         0.93,
@@ -620,7 +635,14 @@ def write_system_performance_plot(
     ax_top.legend(frameon=False, loc="lower right")
 
     ax_bottom.plot(rounds, mean_value, color="#16a34a", linewidth=2.2, label="mean value")
-    ax_bottom.plot(rounds, best_value, color="#111827", linewidth=2.0, label="best value found")
+    ax_bottom.plot(rounds, best_value, color="#111827", linewidth=1.7, label="current round best")
+    ax_bottom.plot(
+        rounds,
+        best_value_found,
+        color="#2563eb",
+        linewidth=2.2,
+        label="best value found so far",
+    )
     ax_bottom.axhline(upper_bound, color="#6b7280", linestyle="--", linewidth=1.1, label="global optimum")
     ax_diversity = ax_bottom.twinx()
     ax_diversity.plot(

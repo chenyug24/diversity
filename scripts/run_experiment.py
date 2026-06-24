@@ -74,16 +74,16 @@ def main() -> None:
     print()
     for strategy, metrics in sorted(
         summary.items(),
-        key=lambda item: item[1]["mean_score_mean"],
+        key=lambda item: item[1]["best_value_found_ratio_mean"],
         reverse=True,
     ):
         print(
             f"{strategy:25s} "
-            f"score={metrics['mean_score_mean']:.3f} "
-            f"mean_opt={100.0 * metrics['system_optimization_mean']:.1f}% "
-            f"best_opt={100.0 * metrics['best_value_ratio_mean']:.1f}% "
-            f"gap={metrics['optimality_gap_mean']:.3f} "
-            f"value={metrics['mean_value_mean']:.3f} "
+            f"best_found={metrics['best_value_found_mean']:.3f} "
+            f"best_found_opt={100.0 * metrics['best_value_found_ratio_mean']:.1f}% "
+            f"best_found_gap={metrics['best_value_found_gap_mean']:.3f} "
+            f"final_mean={metrics['mean_score_mean']:.3f} "
+            f"final_best_opt={100.0 * metrics['best_value_ratio_mean']:.1f}% "
             f"diversity={metrics['mean_diversity_mean']:.3f} "
             f"coverage={metrics['peak_coverage_mean']:.1f} "
             f"max_occ={metrics['max_peak_occupancy_mean']:.1f}"

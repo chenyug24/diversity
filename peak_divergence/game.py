@@ -129,6 +129,13 @@ def optimality_gap(values: np.ndarray, landscape: PeakLandscape) -> float:
     return max(0.0, float(np.max(landscape.heights) - np.max(values)))
 
 
+def value_ratio(value: float, landscape: PeakLandscape) -> float:
+    global_optimum = float(np.max(landscape.heights))
+    if global_optimum <= 0.0:
+        return 0.0
+    return float(value / global_optimum)
+
+
 def _safe_rate(numerator: float, denominator: float) -> float:
     if denominator <= 0.0:
         return 0.0
@@ -398,6 +405,12 @@ def run_game(
     observed_count_history: list[np.ndarray] = []
     round_metrics: list[dict[str, Any]] = []
     previous_state: tuple[np.ndarray, np.ndarray] | None = None
+    initial_scores, initial_values, _, _, _, _ = score_positions(positions, landscape, config)
+    best_index = int(np.argmax(initial_values))
+    best_score_found = float(initial_scores[best_index])
+    best_value_found = float(initial_values[best_index])
+    best_value_found_round = 0
+    best_value_found_agent_id = best_index
 
     for round_index in range(config.rounds):
         scores, values, diversity, origin, _, _ = score_positions(positions, landscape, config)
@@ -455,6 +468,14 @@ def run_game(
         previous_state = (positions.copy(), scores.copy())
         positions = np.clip(np.vstack(next_positions).astype(float), config.lower, config.upper)
         position_history.append(positions.copy())
+        current_scores, current_values, _, _, _, _ = score_positions(positions, landscape, config)
+        current_best_index = int(np.argmax(current_values))
+        current_best_value = float(current_values[current_best_index])
+        if current_best_value > best_value_found:
+            best_score_found = float(current_scores[current_best_index])
+            best_value_found = current_best_value
+            best_value_found_round = round_index + 1
+            best_value_found_agent_id = current_best_index
         metrics = summarize_positions(
             positions,
             landscape,
@@ -463,6 +484,15 @@ def run_game(
             request_levels=request_levels,
         )
         metrics["round"] = round_index
+        metrics["best_score_found"] = best_score_found
+        metrics["best_value_found"] = best_value_found
+        metrics["best_value_found_ratio"] = value_ratio(best_value_found, landscape)
+        metrics["best_value_found_gap"] = max(
+            0.0,
+            float(np.max(landscape.heights) - best_value_found),
+        )
+        metrics["best_value_found_round"] = float(best_value_found_round)
+        metrics["best_value_found_agent_id"] = float(best_value_found_agent_id)
         if communication_stats:
             metrics["mean_observed_count"] = float(
                 np.mean([row["observed_count"] for row in communication_stats])
@@ -516,6 +546,10 @@ def run_game(
         final_diversity=final_diversity,
         final_origin=final_origin,
         final_peak_ids=final_peak_ids,
+        best_score_found=best_score_found,
+        best_value_found=best_value_found,
+        best_value_found_round=best_value_found_round,
+        best_value_found_agent_id=best_value_found_agent_id,
         position_history=position_history,
         action_history=action_history,
         negotiation_history=negotiation_history,

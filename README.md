@@ -32,14 +32,22 @@ S_i = V_i
 where `V_i` is hidden value. Diversity and origin distance are logged only as
 diagnostic metrics; they are not rewarded.
 
-The reports also include a system-level normalized metric:
+The primary optimization metric is the highest value found by any agent at any
+round:
+
+```text
+best_value_found = max_{i,t} V(z_i,t)
+best_value_found_ratio = best_value_found / max_peak_height
+```
+
+The reports also include a system-level average metric:
 
 ```text
 system_optimization = mean_score / max_peak_height
 ```
 
-This is a loose percentage-style indicator of how well the whole population is
-optimizing relative to the global optimum.
+This average metric is diagnostic; it says how well the whole population is
+doing, not whether the system discovered the best solution.
 
 ## Black-Box Information Setting
 

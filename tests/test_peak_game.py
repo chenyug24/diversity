@@ -41,6 +41,18 @@ class BarrierStrategy(Strategy):
         return observation.own_position
 
 
+class PeakThenLeaveStrategy(Strategy):
+    name = "peak_then_leave"
+
+    def initial_position(self, agent_id, rng, config):
+        if agent_id == 0:
+            return np.array([0.0, 0.0])
+        return np.array([100.0, 100.0])
+
+    def update_position(self, observation, rng, config):
+        return np.array([100.0, 100.0])
+
+
 class PeakDivergenceGameTests(unittest.TestCase):
     def test_value_at_peak_center_equals_height(self):
         landscape = PeakLandscape(
@@ -101,6 +113,26 @@ class PeakDivergenceGameTests(unittest.TestCase):
         self.assertEqual(len(first.negotiation_history), config.rounds)
         self.assertEqual(len(first.communication_history), config.rounds)
         self.assertEqual(len(first.observed_count_history), config.rounds)
+
+    def test_final_summary_tracks_best_value_found_across_rounds(self):
+        config = PeakGameConfig(num_agents=2, dimensions=2, rounds=1, num_peaks=1)
+        landscape = PeakLandscape(
+            centers=np.array([[0.0, 0.0]]),
+            heights=np.array([100.0]),
+            widths=np.array([1.0]),
+        )
+        result = run_game(
+            [PeakThenLeaveStrategy(), PeakThenLeaveStrategy()],
+            config=config,
+            seed=7,
+            landscape=landscape,
+        )
+        summary = result.final_summary()
+        self.assertLess(summary["best_value"], 1.0)
+        self.assertEqual(summary["best_value_found"], 100.0)
+        self.assertEqual(summary["best_value_found_ratio"], 1.0)
+        self.assertEqual(summary["best_value_found_round"], 0.0)
+        self.assertEqual(summary["best_value_found_agent_id"], 0.0)
 
     def test_agent_updates_are_parallel_within_round(self):
         num_agents = 4

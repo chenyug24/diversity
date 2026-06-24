@@ -8,6 +8,7 @@ __pycache__/
 .env.*
 !.env.example
 results/
+exports/
 build/
 *.egg-info/
 docs/*.aux

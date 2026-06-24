@@ -159,6 +159,11 @@ def _aggregate(
         "global_optimum",
         "best_value_ratio",
         "optimality_gap",
+        "best_score_found",
+        "best_value_found",
+        "best_value_found_ratio",
+        "best_value_found_gap",
+        "best_value_found_round",
         "best_score",
         "mean_value",
         "best_value",
@@ -182,13 +187,13 @@ def _aggregate(
 def _summary_markdown(summary: dict[str, dict[str, float]]) -> str:
     ordered = sorted(
         summary.items(),
-        key=lambda item: item[1]["mean_score_mean"],
+        key=lambda item: item[1]["best_value_found_ratio_mean"],
         reverse=True,
     )
     lines = [
         "# Peak-Divergence Summary",
         "",
-        "| Strategy | Mean score | Mean opt. | Best opt. | Gap | Value | Diversity | Peak coverage |",
+        "| Strategy | Best found | Best found opt. | Best found gap | Final mean | Final best opt. | Diversity | Peak coverage |",
         "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
     for strategy, metrics in ordered:
@@ -197,11 +202,11 @@ def _summary_markdown(summary: dict[str, dict[str, float]]) -> str:
             + " | ".join(
                 [
                     strategy,
-                    f"{metrics['mean_score_mean']:.3f} +/- {metrics['mean_score_std']:.3f}",
-                    f"{100.0 * metrics['system_optimization_mean']:.1f}%",
+                    f"{metrics['best_value_found_mean']:.3f} +/- {metrics['best_value_found_std']:.3f}",
+                    f"{100.0 * metrics['best_value_found_ratio_mean']:.1f}%",
+                    f"{metrics['best_value_found_gap_mean']:.3f}",
+                    f"{metrics['mean_score_mean']:.3f}",
                     f"{100.0 * metrics['best_value_ratio_mean']:.1f}%",
-                    f"{metrics['optimality_gap_mean']:.3f}",
-                    f"{metrics['mean_value_mean']:.3f}",
                     f"{metrics['mean_diversity_mean']:.3f}",
                     f"{metrics['peak_coverage_mean']:.1f}",
                 ]

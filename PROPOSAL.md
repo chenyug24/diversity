@@ -191,21 +191,31 @@ LLM Black-Box Agent:
 
 ## 8. Evaluation Metrics
 
-The primary metric is average final score:
+The primary metric is the highest value discovered by any agent across all
+rounds:
 
 ```text
-(1 / N) * sum_i S_i.
+best_value_found = max_{i,t} V(z_{i,t}).
 ```
 
-We also report a normalized system optimization index:
+Because the evaluator knows the hidden peak heights, this can be normalized by
+the true global optimum:
+
+```text
+best_value_found_ratio = best_value_found / max_peak_height.
+best_value_found_gap = max_peak_height - best_value_found.
+```
+
+We also report a population-average system optimization index:
 
 ```text
 system_optimization = mean_score / max_peak_height.
 ```
 
 This gives a 0-to-1 indicator of how close the population's average score is to
-the known global optimum. The benchmark also reports best value found and the
-optimality gap.
+the known global optimum. It is useful diagnostically, but it is not the main
+success metric when the research question is whether the multi-agent system
+finds the best solution.
 
 Diagnostic metrics include:
 

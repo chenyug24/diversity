@@ -81,7 +81,7 @@ SECTIONS = [
     (
         "8. Evaluation Metrics",
         [
-            "The primary metrics are value-based: best value found by any agent across all rounds; optimality gap, V* - max_{i,t} V(z_{i,t}); time to reach a fixed percentage of the global optimum; average final value across agents; and success rate across random seeds.",
+            "The primary metrics are value-based: best_value_found = max over agents and rounds of V(z_i,t); best_value_found_ratio = best_value_found / V*; optimality gap, V* - max_{i,t} V(z_{i,t}); time to reach a fixed percentage of the global optimum; average final value across agents; and success rate across random seeds.",
             "Communication metrics distinguish between information availability, information use, and negotiated exchange: mean number of agents that each agent makes its information visible to; frequency of private decisions, where an agent chooses to reveal information to no one; mean number of visible peer observations that each agent actually inspects; mean observed peer count; whether high-performing agents become more or less willing to share over time; request count; acceptance rate; rejection rate; reciprocal exchange rate; information asymmetry; and communication efficiency, measured as performance improvement per unit of inspected information.",
             "Diversity and convergence are diagnostic metrics: average pairwise distance between agents' submitted points, peak coverage, agent clustering near the same peak, and convergence rate over rounds. These diagnostic metrics are not rewards. They are used to explain why agents succeed or fail.",
         ],

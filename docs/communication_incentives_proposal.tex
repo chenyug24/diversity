@@ -138,6 +138,14 @@ This experiment tests when additional agents improve global optimization and whe
 
 The primary metrics are value-based:
 
+\[
+best\_value\_found = \max_{i,t} V(z_{i,t})
+\]
+
+\[
+best\_value\_found\_ratio = \frac{best\_value\_found}{V^*}
+\]
+
 \begin{itemize}[leftmargin=0.3in]
 \item Best value found by any agent across all rounds.
 \item Optimality gap, $V^* - \max_{i,t} V(z_{i,t})$.

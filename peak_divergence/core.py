@@ -99,6 +99,10 @@ class PeakRunResult:
     final_diversity: np.ndarray
     final_origin: np.ndarray
     final_peak_ids: np.ndarray
+    best_score_found: float = 0.0
+    best_value_found: float = 0.0
+    best_value_found_round: int = 0
+    best_value_found_agent_id: int = -1
     position_history: list[np.ndarray] = field(default_factory=list)
     action_history: list[list[CollaborationAction]] = field(default_factory=list)
     negotiation_history: list[list[NegotiationExchange]] = field(default_factory=list)
@@ -109,6 +113,11 @@ class PeakRunResult:
 
     def final_summary(self) -> dict[str, float]:
         final = self.round_metrics[-1] if self.round_metrics else {}
+        global_optimum = float(final.get("global_optimum", float(np.max(self.landscape.heights))))
+        best_value_found = float(final.get("best_value_found", self.best_value_found))
+        best_value_found_ratio = (
+            best_value_found / global_optimum if global_optimum > 0.0 else 0.0
+        )
         return {
             "mean_score": float(np.mean(self.final_scores)),
             "std_score": float(np.std(self.final_scores)),
@@ -117,9 +126,26 @@ class PeakRunResult:
             "total_score": float(final.get("total_score", np.sum(self.final_scores))),
             "score_upper_bound": float(final.get("score_upper_bound", 0.0)),
             "system_optimization": float(final.get("system_optimization", 0.0)),
-            "global_optimum": float(final.get("global_optimum", 0.0)),
+            "global_optimum": global_optimum,
             "best_value_ratio": float(final.get("best_value_ratio", 0.0)),
             "optimality_gap": float(final.get("optimality_gap", 0.0)),
+            "best_score_found": float(final.get("best_score_found", self.best_score_found)),
+            "best_value_found": best_value_found,
+            "best_value_found_ratio": float(
+                final.get("best_value_found_ratio", best_value_found_ratio)
+            ),
+            "best_value_found_gap": float(
+                final.get(
+                    "best_value_found_gap",
+                    max(0.0, global_optimum - best_value_found),
+                )
+            ),
+            "best_value_found_round": float(
+                final.get("best_value_found_round", self.best_value_found_round)
+            ),
+            "best_value_found_agent_id": float(
+                final.get("best_value_found_agent_id", self.best_value_found_agent_id)
+            ),
             "mean_value": float(np.mean(self.final_values)),
             "best_value": float(np.max(self.final_values)),
             "mean_diversity": float(np.mean(self.final_diversity)),
