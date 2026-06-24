@@ -20,9 +20,13 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--agents", type=int, nargs="+", default=[200])
     parser.add_argument("--peaks", type=int, nargs="+", default=[6, 12, 24])
-    parser.add_argument("--betas", type=float, nargs="+", default=[0.0, 0.015, 0.05, 0.15])
     parser.add_argument("--rounds", type=int, default=14)
-    parser.add_argument("--gamma-origin", type=float, default=0.010)
+    parser.add_argument(
+        "--gamma-origin",
+        type=float,
+        default=0.0,
+        help="Deprecated compatibility option; origin distance is logged but not rewarded.",
+    )
     parser.add_argument("--dimensions", type=int, default=10)
     parser.add_argument("--seeds", type=int, default=10)
     parser.add_argument("--seed-start", type=int, default=0)
@@ -35,6 +39,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--observation-noise", type=float, default=0.0)
     parser.add_argument("--delayed-observation", action="store_true")
+    parser.add_argument("--sequential-agent-updates", action="store_true")
+    parser.add_argument("--max-parallel-agent-updates", type=int, default=None)
     return parser.parse_args()
 
 
@@ -46,32 +52,33 @@ def main() -> None:
 
     for agents in args.agents:
         for peaks in args.peaks:
-            for beta in args.betas:
-                safe_beta = str(beta).replace(".", "_")
-                run_dir = args.out / f"agents_{agents}_peaks_{peaks}_beta_{safe_beta}"
-                summary = run_homogeneous_suite(
-                    out_dir=run_dir,
-                    num_agents=agents,
-                    rounds=args.rounds,
-                    num_peaks=peaks,
-                    beta_diversity=beta,
-                    gamma_origin=args.gamma_origin,
-                    dimensions=args.dimensions,
-                    seeds=seeds,
-                    strategies=args.strategies,
-                    observation_noise=args.observation_noise,
-                    delayed_observation=args.delayed_observation,
+            run_dir = args.out / f"agents_{agents}_peaks_{peaks}_value_only"
+            summary = run_homogeneous_suite(
+                out_dir=run_dir,
+                num_agents=agents,
+                rounds=args.rounds,
+                num_peaks=peaks,
+                beta_diversity=0.0,
+                gamma_origin=args.gamma_origin,
+                dimensions=args.dimensions,
+                seeds=seeds,
+                strategies=args.strategies,
+                observation_noise=args.observation_noise,
+                delayed_observation=args.delayed_observation,
+                parallel_agent_updates=not args.sequential_agent_updates,
+                max_parallel_agent_updates=args.max_parallel_agent_updates,
+            )
+            for strategy, metrics in summary.items():
+                rows.append(
+                    {
+                        "agents": agents,
+                        "peaks": peaks,
+                        "beta_diversity": 0.0,
+                        "diversity_rewarded": False,
+                        "strategy": strategy,
+                        **metrics,
+                    }
                 )
-                for strategy, metrics in summary.items():
-                    rows.append(
-                        {
-                            "agents": agents,
-                            "peaks": peaks,
-                            "beta_diversity": beta,
-                            "strategy": strategy,
-                            **metrics,
-                        }
-                    )
 
     output_path = args.out / "sweep_summary.csv"
     with output_path.open("w", newline="") as handle:

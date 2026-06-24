@@ -20,8 +20,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--agents", type=int, default=200)
     parser.add_argument("--rounds", type=int, default=14)
     parser.add_argument("--peaks", type=int, default=12)
-    parser.add_argument("--beta-diversity", type=float, default=0.015)
-    parser.add_argument("--gamma-origin", type=float, default=0.010)
+    parser.add_argument(
+        "--beta-diversity",
+        type=float,
+        default=0.0,
+        help="Deprecated compatibility option; score is fixed to S = V.",
+    )
+    parser.add_argument(
+        "--gamma-origin",
+        type=float,
+        default=0.0,
+        help="Deprecated compatibility option; origin distance is logged but not rewarded.",
+    )
     parser.add_argument("--dimensions", type=int, default=10)
     parser.add_argument("--seeds", type=int, default=10)
     parser.add_argument("--seed-start", type=int, default=0)
@@ -34,6 +44,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--observation-noise", type=float, default=0.0)
     parser.add_argument("--delayed-observation", action="store_true")
+    parser.add_argument("--sequential-agent-updates", action="store_true")
+    parser.add_argument("--max-parallel-agent-updates", type=int, default=None)
     parser.add_argument("--write-agent-scores", action="store_true")
     return parser.parse_args()
 
@@ -53,6 +65,8 @@ def main() -> None:
         strategies=args.strategies,
         observation_noise=args.observation_noise,
         delayed_observation=args.delayed_observation,
+        parallel_agent_updates=not args.sequential_agent_updates,
+        max_parallel_agent_updates=args.max_parallel_agent_updates,
         write_agent_scores=args.write_agent_scores,
     )
 
@@ -66,6 +80,9 @@ def main() -> None:
         print(
             f"{strategy:25s} "
             f"score={metrics['mean_score_mean']:.3f} "
+            f"mean_opt={100.0 * metrics['system_optimization_mean']:.1f}% "
+            f"best_opt={100.0 * metrics['best_value_ratio_mean']:.1f}% "
+            f"gap={metrics['optimality_gap_mean']:.3f} "
             f"value={metrics['mean_value_mean']:.3f} "
             f"diversity={metrics['mean_diversity_mean']:.3f} "
             f"coverage={metrics['peak_coverage_mean']:.1f} "

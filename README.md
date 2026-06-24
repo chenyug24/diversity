@@ -1,13 +1,13 @@
 # Black-Box Peak-Divergence Game
 
-A multi-agent benchmark for testing whether collaboration helps agents discover
-high-scoring but undercrowded solutions when the reward rule is not revealed.
+A multi-agent benchmark for testing whether communication and incentive structure
+help agents reach the global optimum in a hidden black-box landscape.
 
 Agents search in a bounded 10-dimensional space with hidden Gaussian-shaped
-peaks. The system computes a private quality-diversity score, but agents only see
-their own total score. Through optional read/share actions, agents may observe
-other agents' positions and total scores. They never observe hidden peak
-locations, the value component, the diversity component, or the scoring formula.
+peaks. The system computes a private value score, but agents only see
+their own total score. Through optional negotiated information exchange, agents
+may observe other agents' positions and total scores. They never observe hidden peak
+locations or the scoring formula.
 
 ## Game
 
@@ -26,27 +26,36 @@ V(z) = max_m h_m * exp(-||z - mu_m||_2^2 / (2 * sigma_m^2))
 The system evaluates each final point with:
 
 ```text
-S_i = V_i * (1 + beta_diversity * D_i + gamma_origin * O_i)
+S_i = V_i
 ```
 
-where `V_i` is hidden value, `D_i` is average distance from other agents, and
-`O_i` is distance from the origin. These components are used for evaluation
-metrics, but they are not shown to agents.
+where `V_i` is hidden value. Diversity and origin distance are logged only as
+diagnostic metrics; they are not rewarded.
+
+The reports also include a system-level normalized metric:
+
+```text
+system_optimization = mean_score / max_peak_height
+```
+
+This is a loose percentage-style indicator of how well the whole population is
+optimizing relative to the global optimum.
 
 ## Black-Box Information Setting
 
 Agents know:
 
 - The action space is 10-dimensional and bounded in `[0, 100]`.
-- They want to maximize their own total score.
-- They can choose how much to read and how much to share.
+- Depending on the strategy, they may be prompted to optimize cooperatively or competitively.
+- They can choose initial visibility, request peer information, offer reciprocal exchange,
+  and accept or reject incoming requests.
 - They receive their own total score after each round.
 
 Agents do not know:
 
 - The hidden peak locations, heights, or widths.
 - The scoring formula.
-- The value, diversity, or origin components of the score.
+- The hidden value component of the score.
 - The population-level metrics.
 
 When collaboration reveals a peer, the observing agent sees only:
@@ -59,30 +68,48 @@ This makes collaboration a source of uncertain information. Reading high-scoring
 peers can reveal useful regions, but it may also cause imitation and crowding.
 Sharing a good location can help others learn, but may attract competitors.
 
-## Collaboration
+## Negotiated Communication
 
-At every round, each agent chooses:
+At every round, the benchmark follows the proposal's communication process:
 
 ```text
-share_i in {0, 5, 20, 100, all}
-read_i  in {0, 5, 20, 100, all}
+1. Each agent submits a point.
+2. The environment returns each agent's own score.
+3. Each agent chooses an initial visibility level.
+4. Agents may request information from selected peers and offer reciprocal exchange.
+5. Target agents accept or reject incoming requests.
+6. The environment reveals initially visible and accepted exchanged information.
+7. Each agent chooses the next point.
 ```
 
-Sharing controls how many other agents may observe the agent. Reading controls
-how many visible peer states the agent receives.
+The implemented communication levels are:
+
+```text
+visibility_i    in {0, 1, 5, 20, 100, all}
+request_count_i in {0, 1, 5, 20, 100, all}
+```
+
+The evaluator records visibility, requests, reciprocal offers, accept/reject
+outcomes, and the final number of peer records observed by each agent.
+
+Agent updates are synchronous within a round. The environment builds all
+observations from the same previous population state, asks all agents for their
+next positions, and only then updates the population. For LLM-backed agents, the
+API requests for one round are dispatched in parallel by default.
 
 ## Implemented Strategies
 
 - `random`: samples a fresh random point each round.
 - `random_corner`: chooses one random hypercube corner.
 - `origin_maximizer`: always chooses `(100, ..., 100)`.
-- `independent_search`: never reads or shares; locally searches from its own score history.
-- `score_following`: reads/shares all and follows the highest observed total score.
+- `independent_search`: never communicates; locally searches from its own score history.
+- `score_following`: makes information visible, requests peers, and follows the highest observed total score.
 - `diversity_only`: spreads away from observed agents while ignoring score.
-- `full_collaboration`: all agents read/share all and converge toward the highest observed total score.
-- `random_collaboration`: randomly chooses read/share levels and builds a local score surrogate.
-- `strategic_collaboration`: reads more when its own score is weak, shares less when its score is strong, and balances high-score imitation against crowd avoidance.
-- `llm_blackbox`: calls the OpenAI API each round to choose a position from black-box observations.
+- `full_collaboration`: all agents make information visible, accept exchanges, and converge toward the highest observed total score.
+- `random_collaboration`: randomly chooses negotiation actions and builds a local score surrogate.
+- `strategic_collaboration`: requests more when its own score is weak, reveals less when its score is strong, and balances high-score imitation against crowd avoidance.
+- `llm_blackbox` / `llm_competitive`: calls the OpenAI API with a competitive objective.
+- `llm_cooperative`: calls the OpenAI API with a cooperative group-optimization objective.
 
 ## Quick Start
 
@@ -94,8 +121,6 @@ python3 scripts/run_experiment.py \
   --rounds 14 \
   --peaks 12 \
   --seeds 10 \
-  --beta-diversity 0.015 \
-  --gamma-origin 0.010 \
   --out results/default
 ```
 
@@ -119,10 +144,16 @@ python3 scripts/plot_results.py \
 Install dependencies and set your API key:
 
 ```bash
-pip install -e .
-export OPENAI_API_KEY="your_api_key"
-export OPENAI_AGENT_MODEL="gpt-5.5"
+python3 -m venv .venv
+source .venv/bin/activate
+python3 -m pip install -e .
+
+cp .env.example .env
 ```
+
+Then edit `.env` and replace `sk-your-real-key-here` with your real OpenAI API
+key from [platform.openai.com/api-keys](https://platform.openai.com/api-keys).
+Do not commit `.env`; it is ignored by git.
 
 Run a small LLM-backed experiment first:
 
@@ -136,8 +167,10 @@ python3 scripts/run_experiment.py \
   --out results/llm_demo
 ```
 
-Each `llm_blackbox` agent calls the OpenAI API once per round. Large runs can
-produce many API calls, so start small before scaling up.
+Each `llm_blackbox` agent calls the OpenAI API once per round. Calls within the
+same round run in parallel by default, but large runs still produce many total
+API calls, so start small before scaling up. Use `--max-parallel-agent-updates`
+to limit concurrent requests if needed.
 
 ## Recommended Experiments
 
@@ -153,13 +186,12 @@ python3 scripts/run_experiment.py \
   --out results/main
 ```
 
-Then sweep population size, number of peaks, and diversity pressure:
+Then sweep population size and number of peaks with the value-only score:
 
 ```bash
 python3 scripts/run_sweep.py \
   --agents 100 200 400 \
   --peaks 6 12 24 \
-  --betas 0.0 0.015 0.05 0.15 \
   --seeds 20 \
   --out results/sweep
 ```
@@ -169,7 +201,8 @@ The central hypothesis is:
 ```text
 Collaboration helps agents discover high-scoring regions,
 but excessive collaboration causes imitation and overcrowding.
-Selective collaboration should perform best when diversity pressure is high.
+Strategic visibility and inspection should improve global optimization while
+avoiding redundant search.
 ```
 
 See [PROPOSAL.md](PROPOSAL.md) for the full project proposal.

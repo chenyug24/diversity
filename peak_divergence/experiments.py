@@ -7,7 +7,7 @@ from pathlib import Path
 from statistics import mean, stdev
 from typing import Iterable
 
-from .core import PeakGameConfig
+from .core import DEPRECATED_DIVERSITY_WEIGHT, PeakGameConfig
 from .game import run_game
 from .strategies import available_strategies, make_population
 
@@ -31,16 +31,19 @@ def run_homogeneous_suite(
     num_agents: int = 200,
     rounds: int = 14,
     num_peaks: int = 12,
-    beta_diversity: float = 0.015,
-    gamma_origin: float = 0.010,
+    beta_diversity: float = DEPRECATED_DIVERSITY_WEIGHT,
+    gamma_origin: float = 0.0,
     seeds: Iterable[int] = range(10),
     strategies: Iterable[str] = DEFAULT_STRATEGIES,
     dimensions: int = 10,
     observation_noise: float = 0.0,
     delayed_observation: bool = False,
+    parallel_agent_updates: bool = True,
+    max_parallel_agent_updates: int | None = None,
     write_agent_scores: bool = False,
 ) -> dict[str, dict[str, float]]:
     out_dir.mkdir(parents=True, exist_ok=True)
+    fixed_beta = DEPRECATED_DIVERSITY_WEIGHT
     final_rows: list[dict[str, float | int | str]] = []
     round_rows: list[dict[str, float | int | str]] = []
     peak_rows: list[dict[str, float | int | str]] = []
@@ -53,10 +56,12 @@ def run_homogeneous_suite(
                 dimensions=dimensions,
                 rounds=rounds,
                 num_peaks=num_peaks,
-                beta_diversity=beta_diversity,
+                beta_diversity=fixed_beta,
                 gamma_origin=gamma_origin,
                 observation_noise=observation_noise,
                 delayed_observation=delayed_observation,
+                parallel_agent_updates=parallel_agent_updates,
+                max_parallel_agent_updates=max_parallel_agent_updates,
             )
             result = run_game(
                 make_population(strategy_name, num_agents),
@@ -70,8 +75,10 @@ def run_homogeneous_suite(
                     "num_agents": num_agents,
                     "rounds": rounds,
                     "num_peaks": num_peaks,
-                    "beta_diversity": beta_diversity,
+                    "beta_diversity": fixed_beta,
                     "gamma_origin": gamma_origin,
+                    "origin_rewarded": False,
+                    "diversity_rewarded": False,
                     **result.final_summary(),
                 }
             )
@@ -83,8 +90,10 @@ def run_homogeneous_suite(
                         "num_agents": num_agents,
                         "rounds": rounds,
                         "num_peaks": num_peaks,
-                        "beta_diversity": beta_diversity,
+                        "beta_diversity": fixed_beta,
                         "gamma_origin": gamma_origin,
+                        "origin_rewarded": False,
+                        "diversity_rewarded": False,
                         **metrics,
                     }
                 )
@@ -145,6 +154,11 @@ def _aggregate(
 
     metrics = [
         "mean_score",
+        "total_score",
+        "system_optimization",
+        "global_optimum",
+        "best_value_ratio",
+        "optimality_gap",
         "best_score",
         "mean_value",
         "best_value",
@@ -174,8 +188,8 @@ def _summary_markdown(summary: dict[str, dict[str, float]]) -> str:
     lines = [
         "# Peak-Divergence Summary",
         "",
-        "| Strategy | Mean score | Value | Diversity | Origin | Peak coverage | Max occupancy |",
-        "| --- | ---: | ---: | ---: | ---: | ---: | ---: |",
+        "| Strategy | Mean score | Mean opt. | Best opt. | Gap | Value | Diversity | Peak coverage |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
     for strategy, metrics in ordered:
         lines.append(
@@ -184,11 +198,12 @@ def _summary_markdown(summary: dict[str, dict[str, float]]) -> str:
                 [
                     strategy,
                     f"{metrics['mean_score_mean']:.3f} +/- {metrics['mean_score_std']:.3f}",
+                    f"{100.0 * metrics['system_optimization_mean']:.1f}%",
+                    f"{100.0 * metrics['best_value_ratio_mean']:.1f}%",
+                    f"{metrics['optimality_gap_mean']:.3f}",
                     f"{metrics['mean_value_mean']:.3f}",
                     f"{metrics['mean_diversity_mean']:.3f}",
-                    f"{metrics['mean_origin_mean']:.3f}",
                     f"{metrics['peak_coverage_mean']:.1f}",
-                    f"{metrics['max_peak_occupancy_mean']:.1f}",
                 ]
             )
             + " |"

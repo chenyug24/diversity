@@ -21,8 +21,23 @@ def _level_for_target(target: int, config: PeakGameConfig) -> Level:
 
 
 def _sample_level(rng: np.random.Generator, config: PeakGameConfig) -> Level:
-    level = rng.choice(np.array(config.share_read_levels, dtype=object))
+    level = rng.choice(np.array(config.communication_levels, dtype=object))
     return level.item() if hasattr(level, "item") else level
+
+
+def _negotiation_action(
+    *,
+    visibility: Level,
+    request_count: Level,
+    offer_reciprocal: bool = False,
+    accept_probability: float = 0.5,
+) -> CollaborationAction:
+    return CollaborationAction(
+        visibility=visibility,
+        request_count=request_count,
+        offer_reciprocal=offer_reciprocal,
+        accept_probability=float(np.clip(accept_probability, 0.0, 1.0)),
+    )
 
 
 def _random_corner(rng: np.random.Generator, config: PeakGameConfig, count: int = 1) -> np.ndarray:
@@ -215,7 +230,7 @@ class Strategy:
         config: PeakGameConfig,
         rng: np.random.Generator,
     ) -> CollaborationAction:
-        return CollaborationAction(share=0, read=0)
+        return _negotiation_action(visibility=0, request_count=0, accept_probability=0.0)
 
     def update_position(
         self,
@@ -316,7 +331,12 @@ class ScoreFollowingStrategy(MemoryMixin, Strategy):
     memory_limit: int = 260
 
     def choose_collaboration(self, *args, **kwargs) -> CollaborationAction:
-        return CollaborationAction(share="all", read="all")
+        return _negotiation_action(
+            visibility="all",
+            request_count="all",
+            offer_reciprocal=True,
+            accept_probability=1.0,
+        )
 
     def update_position(
         self,
@@ -349,9 +369,11 @@ class DiversityOnlyStrategy(Strategy):
         config: PeakGameConfig,
         rng: np.random.Generator,
     ) -> CollaborationAction:
-        return CollaborationAction(
-            share=_level_for_target(20, config),
-            read=_level_for_target(20, config),
+        return _negotiation_action(
+            visibility=_level_for_target(20, config),
+            request_count=_level_for_target(20, config),
+            offer_reciprocal=True,
+            accept_probability=0.8,
         )
 
     def update_position(
@@ -371,7 +393,12 @@ class FullCollaborationStrategy(MemoryMixin, Strategy):
     memory_limit: int = 420
 
     def choose_collaboration(self, *args, **kwargs) -> CollaborationAction:
-        return CollaborationAction(share="all", read="all")
+        return _negotiation_action(
+            visibility="all",
+            request_count="all",
+            offer_reciprocal=True,
+            accept_probability=1.0,
+        )
 
     def update_position(
         self,
@@ -406,9 +433,11 @@ class RandomCollaborationStrategy(MemoryMixin, Strategy):
         config: PeakGameConfig,
         rng: np.random.Generator,
     ) -> CollaborationAction:
-        return CollaborationAction(
-            share=_sample_level(rng, config),
-            read=_sample_level(rng, config),
+        return _negotiation_action(
+            visibility=_sample_level(rng, config),
+            request_count=_sample_level(rng, config),
+            offer_reciprocal=bool(rng.random() < 0.5),
+            accept_probability=float(rng.uniform(0.1, 0.9)),
         )
 
     def update_position(
@@ -464,18 +493,30 @@ class StrategicCollaborationStrategy(MemoryMixin, Strategy):
         high_score = score >= self.score_quantile(0.75, default=float("inf"))
 
         if progress < 0.25 or low_score:
-            share: Level = _level_for_target(20, config)
+            visibility: Level = _level_for_target(20, config)
             if high_score and progress > 0.20:
-                share = _level_for_target(5, config)
-            return CollaborationAction(share=share, read=_level_for_target(100, config))
+                visibility = _level_for_target(5, config)
+            return _negotiation_action(
+                visibility=visibility,
+                request_count=_level_for_target(100, config),
+                offer_reciprocal=True,
+                accept_probability=0.75,
+            )
         if progress < 0.65:
-            return CollaborationAction(
-                share=0 if high_score else _level_for_target(5, config),
-                read=_level_for_target(20, config),
+            return _negotiation_action(
+                visibility=0 if high_score else _level_for_target(5, config),
+                request_count=_level_for_target(20, config),
+                offer_reciprocal=not high_score,
+                accept_probability=0.45 if high_score else 0.70,
             )
         if progress < 0.90:
-            return CollaborationAction(share=0, read=_level_for_target(5, config))
-        return CollaborationAction(share=0, read=0)
+            return _negotiation_action(
+                visibility=0,
+                request_count=_level_for_target(5, config),
+                offer_reciprocal=False,
+                accept_probability=0.30,
+            )
+        return _negotiation_action(visibility=0, request_count=0, accept_probability=0.20)
 
     def update_position(
         self,
@@ -539,10 +580,16 @@ class LLMBlackBoxStrategy(Strategy):
 
     name = "llm_blackbox"
     model: str | None = None
+    incentive: str = "competitive"
     history_limit: int = 12
     fail_open: bool = False
     pending_action: CollaborationAction = field(
-        default_factory=lambda: CollaborationAction(share=5, read=20)
+        default_factory=lambda: _negotiation_action(
+            visibility=1,
+            request_count=5,
+            offer_reciprocal=True,
+            accept_probability=0.6,
+        )
     )
     history: list[tuple[np.ndarray, float]] = field(default_factory=list)
 
@@ -564,7 +611,12 @@ class LLMBlackBoxStrategy(Strategy):
     ) -> np.ndarray:
         self.history.append((observation.own_position.copy(), float(observation.own_score)))
         self.history = self.history[-self.history_limit :]
-        prompt = build_llm_prompt(observation, config, self.history)
+        prompt = build_llm_prompt(
+            observation,
+            config,
+            self.history,
+            incentive=self.incentive,
+        )
 
         try:
             output = call_openai_llm(prompt=prompt, model=self.model)
@@ -576,6 +628,18 @@ class LLMBlackBoxStrategy(Strategy):
 
         self.pending_action = decision_to_action(decision)
         return decision.position
+
+
+@dataclass
+class LLMCooperativeStrategy(LLMBlackBoxStrategy):
+    name = "llm_cooperative"
+    incentive: str = "cooperative"
+
+
+@dataclass
+class LLMCompetitiveStrategy(LLMBlackBoxStrategy):
+    name = "llm_competitive"
+    incentive: str = "competitive"
 
 
 StrategyFactory = Callable[[], Strategy]
@@ -592,6 +656,8 @@ _STRATEGIES: dict[str, StrategyFactory] = {
     "random_collaboration": RandomCollaborationStrategy,
     "strategic_collaboration": StrategicCollaborationStrategy,
     "llm_blackbox": LLMBlackBoxStrategy,
+    "llm_cooperative": LLMCooperativeStrategy,
+    "llm_competitive": LLMCompetitiveStrategy,
 }
 
 

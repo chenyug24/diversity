@@ -1,31 +1,31 @@
-# Black-Box Peak-Divergence Game: A Multi-Agent Benchmark for Strategic Collaboration Under Partial Feedback
+# Communication and Incentives in Multi-Agent Black-Box Optimization
 
 ## 1. Motivation
 
 Many multi-agent systems assume that collaboration improves performance. However,
 collaboration can also cause agents to imitate the same successful examples and
-collapse into the same region. This is especially harmful in tasks where agents
-must not only find good solutions, but also find solutions that remain different
-from those chosen by others.
+collapse into the same region. In black-box optimization tasks, this can waste
+search capacity and prevent the system from finding the global optimum.
 
-We propose **Black-Box Peak-Divergence Game**, a benchmark for studying strategic
-collaboration under uncertainty. Hundreds of agents search in a hidden
-10-dimensional multi-peak landscape. Agents do not know the scoring rule, the
-hidden peak locations, or the value/diversity decomposition of the reward. Each
-agent only observes its own total score. Through optional collaboration, agents
-may observe other agents' positions and total scores.
+This project studies how communication and incentive structure affect the ability
+of multiple agents to solve a hidden black-box optimization problem. Agents
+search in a bounded continuous space containing hidden Gaussian peaks. The score
+of an agent is based only on the hidden value of the point it selects, not on
+explicit diversity. Diversity is measured only as a diagnostic variable that
+helps explain exploration, convergence, and redundant search.
 
 The central research question is:
 
 ```text
-Can limited collaboration help agents discover high-scoring regions without
-causing the population to converge onto the same overcrowded solution?
+Under what communication and incentive conditions do multi-agent systems reach
+the global optimum in a hidden black-box landscape?
 ```
 
-This benchmark tests collaboration as information sharing under uncertainty. A
-high-scoring peer may reveal a useful region, but if many agents copy the same
-peer, the region becomes crowded. Agents must decide when to read, when to share,
-and when to avoid visible success.
+The project compares cooperative and competitive settings. In the cooperative
+setting, agents are instructed to help the whole system find the best possible
+solution. In the competitive setting, agents try to maximize their own score and
+outperform the others. Both settings use the same hidden landscape, but they
+create different incentives for communication.
 
 ## 2. Game Setup
 
@@ -53,30 +53,25 @@ may be narrow but higher value.
 
 ## 3. Hidden Scoring Rule
 
-The system computes three internal quantities:
+The system computes one internal reward quantity:
 
 ```text
 V_i = hidden landscape value
-D_i = average normalized L1 distance from other agents
-O_i = normalized distance from the origin
-```
-
-where:
-
-```text
-D_i = (1 / (N - 1)) * sum_{j != i} (1 / 10) * sum_k |z_ik - z_jk|
-O_i = (1 / 10) * sum_k z_ik
 ```
 
 The system's total score is:
 
 ```text
-S_i = V_i * (1 + beta * D_i + gamma * O_i).
+S_i = V_i.
 ```
 
-This multiplicative form prevents agents from winning through meaningless
-novelty. A point that is far from everyone but has low hidden value still scores
-poorly.
+Diversity is not directly rewarded. It is measured as a diagnostic variable that
+helps explain whether agents explore broadly, converge prematurely, or duplicate
+one another's search effort.
+
+Origin distance can still be logged as a diagnostic variable, but it is not part
+of the reward. This keeps the benchmark focused on practical black-box
+optimization rather than rewarding movement away from an arbitrary default.
 
 In the benchmark's main setting, this formula is **not revealed to agents**. The
 formula is used by the environment and for evaluation, but agents only observe
@@ -88,8 +83,9 @@ Agents know:
 
 ```text
 - The action space is [0, 100]^10.
-- The objective is to maximize their own total score.
-- They can choose read/share collaboration levels.
+- Depending on the condition, they are optimizing cooperatively or competitively.
+- They can choose visibility, request peer information, offer reciprocal exchange,
+  and accept or reject incoming requests.
 - They receive their own total score after each round.
 ```
 
@@ -98,7 +94,7 @@ Agents do not know:
 ```text
 - The hidden peak locations.
 - The scoring formula.
-- Whether score comes from value, diversity, origin distance, or crowding.
+- Whether score comes from hidden value, diversity, or crowding.
 - Population-level diagnostics such as average diversity or peak coverage.
 ```
 
@@ -108,41 +104,51 @@ When an agent observes a peer, it receives only:
 (peer_position, peer_total_score).
 ```
 
-This turns the task from direct mathematical optimization into strategic
-collaboration under partial feedback. Agents must infer which regions are useful
-from observed successes while deciding whether copying those successes will cause
-overcrowding.
+This turns the task from direct mathematical optimization into strategic search
+under partial feedback. Agents must infer which regions are useful from observed
+successes while deciding how much information to reveal or request.
 
-## 5. Collaboration Mechanism
+## 5. Negotiated Communication Mechanism
 
-At each round, each agent chooses two collaboration actions:
+Communication is modeled as a negotiation process rather than a fixed passive
+observation setting. At each round, each agent chooses:
 
 ```text
-share_i in {0, 5, 20, 100, all}
-read_i  in {0, 5, 20, 100, all}
+visibility_i    in {0, 1, 5, 20, 100, all}
+request_count_i in {0, 1, 5, 20, 100, all}
+offer_reciprocal_i in {true, false}
+accept_probability_i in [0, 1]
 ```
 
-`share_i` controls how many other agents may observe the agent's current
-position and total score. `read_i` controls how many visible peer states the
-agent receives.
+`visibility_i` controls how many peers can initially see the agent's current
+position and total score. `request_count_i` controls how many peers the agent
+asks for information. If `offer_reciprocal_i` is true, the agent offers to reveal
+its own information in exchange. The target agent accepts or rejects incoming
+requests according to its communication policy.
 
-Reading more can help discover high-scoring regions, but it can also induce
-imitation. Sharing can spread useful information, but it may attract competitors
-to the sharer's region. Collaboration is therefore an endogenous strategic
-action rather than a fixed experimental condition.
+This mechanism separates information availability from negotiated information
+exchange. Communication is therefore an endogenous strategic action rather than a
+fixed experimental condition.
 
 ## 6. Iterative Procedure
 
 1. The environment initializes `N` agents.
 2. The hidden peaks are generated but not revealed.
 3. Each agent submits an initial 10-dimensional point.
-4. The environment computes hidden value, diversity, origin distance, and total score.
+4. The environment computes hidden value, diversity, and total score.
 5. Each agent observes only its own total score.
-6. Each agent chooses `share` and `read` levels.
-7. The environment reveals peer positions and peer total scores according to the read/share choices.
-8. Each agent updates its point using only black-box feedback and observed peer states.
-9. Steps 4-8 repeat for `T` rounds.
-10. Final scores and diagnostic metrics are computed by the environment.
+6. Each agent chooses an initial visibility level.
+7. Each agent may request information from selected peers and offer reciprocal exchange.
+8. Target agents accept or reject incoming requests.
+9. The environment reveals initially visible information and accepted exchanges.
+10. All agents update their points simultaneously using only black-box feedback and observed peer states.
+11. Steps 4-10 repeat for `T` rounds.
+12. Final scores and diagnostic metrics are computed by the environment.
+
+The simultaneous-update condition is important. Within a round, no agent sees
+another agent's newly generated point until the next round. In API-based
+implementations, all model calls for a round can be dispatched concurrently, but
+their outputs are applied only after the full set of agent decisions returns.
 
 ## 7. Baselines
 
@@ -159,22 +165,22 @@ Origin Maximizer:
   Always chooses (100, ..., 100).
 
 Independent Search:
-  Never reads or shares; locally searches from its own score history.
+  Never communicates; locally searches from its own score history.
 
 Score Following:
-  Reads and shares all; follows the highest observed total score.
+  Reveals broadly, requests broadly, and follows the highest observed total score.
 
 Diversity Only:
   Uses observed positions to move away from visible agents, ignoring scores.
 
 Full Collaboration:
-  All agents read and share all information each round.
+  All agents reveal broadly, request broadly, and accept exchanges each round.
 
 Random Collaboration:
-  Randomly chooses read/share levels and builds a black-box score surrogate.
+  Randomly chooses negotiation actions and builds a black-box score surrogate.
 
 Strategic Collaboration:
-  Reads more when its own score is weak, shares less when its score is strong,
+  Requests more when its own score is weak, reveals less when its score is strong,
   and trades off high-score imitation against crowd avoidance.
 
 LLM Black-Box Agent:
@@ -191,6 +197,16 @@ The primary metric is average final score:
 (1 / N) * sum_i S_i.
 ```
 
+We also report a normalized system optimization index:
+
+```text
+system_optimization = mean_score / max_peak_height.
+```
+
+This gives a 0-to-1 indicator of how close the population's average score is to
+the known global optimum. The benchmark also reports best value found and the
+optimality gap.
+
 Diagnostic metrics include:
 
 ```text
@@ -201,7 +217,7 @@ Average diversity:
   Whether agents remain spread out.
 
 Average origin distance:
-  Whether agents move away from the default origin.
+  Diagnostic only; whether agents drift toward high-coordinate regions.
 
 Peak coverage:
   How many distinct hidden peaks are discovered.
@@ -213,7 +229,11 @@ Convergence rate:
   Whether pairwise distance decreases over rounds.
 
 Collaboration efficiency:
-  Whether read/share behavior improves final score.
+  Whether negotiated communication improves final score.
+
+Negotiation metrics:
+  Initial visibility, request count, acceptance rate, rejection rate,
+  reciprocal offer rate, reciprocal exchange rate, and observed peer count.
 ```
 
 These metrics are computed by the environment after the run. They are not shown
@@ -224,26 +244,22 @@ to agents during play.
 The first experiment compares collaboration regimes:
 
 ```text
-no collaboration vs full collaboration vs random collaboration vs strategic collaboration.
+no communication vs full communication vs random negotiation vs strategic negotiation.
 ```
 
 The hypothesis is that full collaboration discovers high-scoring regions quickly
 but can cause crowding, while no collaboration preserves diversity but may miss
 good regions.
 
-The second experiment varies `beta`, the diversity pressure. Low `beta` settings
-mainly reward peak discovery. High `beta` settings make overcrowding more costly
-and should increase the value of selective collaboration.
-
-The third experiment varies `N`, the number of agents. Larger populations should
+The second experiment varies `N`, the number of agents. Larger populations should
 make crowding more severe.
 
-The fourth experiment varies `K`, the number of hidden peaks. More peaks should
+The third experiment varies `K`, the number of hidden peaks. More peaks should
 increase the opportunity for strategic agents to spread across multiple
 high-scoring regions.
 
-The fifth experiment varies the observation mechanism, including noisy positions,
-delayed observations, and limited read/share budgets.
+The fourth experiment varies the observation mechanism, including noisy positions,
+delayed observations, and limited communication budgets.
 
 ## 10. Expected Results
 
@@ -256,27 +272,27 @@ We expect independent agents to maintain more diversity and cover more peaks, bu
 to discover high-value regions more slowly because they cannot use peer
 information.
 
-We expect strategic collaboration to perform best when diversity pressure is
-moderate or high: agents use collaboration to find promising regions, then reduce
-sharing and avoid crowded areas once a region becomes too visible.
+We expect strategic communication to perform best when agents use visibility and
+inspection decisions to learn from promising regions without prematurely
+collapsing into redundant search.
 
 ## 11. Contribution
 
 Black-Box Peak-Divergence Game contributes:
 
-1. A hidden quality-diversity search landscape with multi-agent crowding.
+1. A hidden value landscape for multi-agent black-box optimization.
 2. A black-box feedback setting where agents do not know the scoring rule.
-3. A collaboration mechanism where read/share decisions are strategic actions.
-4. Metrics that separate score, hidden value, diversity, peak coverage, and convergence.
+3. A negotiation mechanism where visibility, requests, reciprocal offers, and accept/reject decisions are strategic actions.
+4. Metrics that separate global value, communication behavior, diagnostic diversity, and convergence.
 
 The benchmark directly tests whether collaboration helps agents learn useful
 information or instead causes harmful imitation.
 
 ## 12. Conclusion
 
-Black-Box Peak-Divergence Game studies collaboration under partial feedback.
-Agents search for high-scoring regions in a hidden 10-dimensional landscape, but
-they only observe total scores. Collaboration can reveal useful examples, but it
-can also cause agents to crowd the same region. The central challenge is not just
-to find a good point, but to decide how much information to use and reveal while
-remaining differentiated from the population.
+This project studies communication and incentives under partial feedback. Agents
+search for high-scoring regions in a hidden 10-dimensional landscape, but they
+only observe total scores. Negotiated communication can reveal useful examples,
+but it can also create imitation or strategic withholding. The central challenge
+is to understand when cooperative or competitive agents, under different
+communication structures, approach the global optimum.

@@ -2,6 +2,7 @@
 
 from .core import (
     CollaborationAction,
+    NegotiationExchange,
     PeakGameConfig,
     PeakLandscape,
     PeakObservation,
@@ -12,6 +13,7 @@ from .strategies import available_strategies, make_population, make_strategy
 
 __all__ = [
     "CollaborationAction",
+    "NegotiationExchange",
     "PeakGameConfig",
     "PeakLandscape",
     "PeakObservation",
