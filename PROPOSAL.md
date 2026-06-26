@@ -114,8 +114,8 @@ Communication is modeled as a negotiation process rather than a fixed passive
 observation setting. At each round, each agent chooses:
 
 ```text
-visibility_i    in {0, 1, 5, 20, 100, all}
-request_count_i in {0, 1, 5, 20, 100, all}
+visibility_i    in nonnegative integers, or all
+request_count_i in nonnegative integers, or all
 offer_reciprocal_i in {true, false}
 accept_probability_i in [0, 1]
 ```
@@ -125,6 +125,9 @@ position and total score. `request_count_i` controls how many peers the agent
 asks for information. If `offer_reciprocal_i` is true, the agent offers to reveal
 its own information in exchange. The target agent accepts or rejects incoming
 requests according to its communication policy.
+
+Integer communication values larger than the number of available peers are
+capped at all available peers.
 
 This mechanism separates information availability from negotiated information
 exchange. Communication is therefore an endogenous strategic action rather than a

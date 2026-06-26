@@ -93,9 +93,12 @@ At every round, the benchmark follows the proposal's communication process:
 The implemented communication levels are:
 
 ```text
-visibility_i    in {0, 1, 5, 20, 100, all}
-request_count_i in {0, 1, 5, 20, 100, all}
+visibility_i    in nonnegative integers, or all
+request_count_i in nonnegative integers, or all
 ```
+
+Values larger than the number of available peers are capped at all available
+peers.
 
 The evaluator records visibility, requests, reciprocal offers, accept/reject
 outcomes, and the final number of peer records observed by each agent.

@@ -160,6 +160,19 @@ class PeakDivergenceGameTests(unittest.TestCase):
         self.assertTrue(decision.offer_reciprocal)
         self.assertEqual(decision.accept_probability, 0.75)
 
+    def test_parse_llm_decision_accepts_any_nonnegative_integer_level(self):
+        config = PeakGameConfig(num_agents=4, dimensions=2)
+        decision = parse_llm_decision(
+            (
+                '{"position":[10,20],"next_visibility":2,'
+                '"next_request_count":3,"offer_reciprocal":false,'
+                '"accept_probability":0.5}'
+            ),
+            config,
+        )
+        self.assertEqual(decision.next_visibility, 2)
+        self.assertEqual(decision.next_request_count, 3)
+
     def test_llm_prompt_does_not_reveal_score_formula(self):
         config = PeakGameConfig(num_agents=6, dimensions=3, rounds=2, num_peaks=2)
         captured = {}

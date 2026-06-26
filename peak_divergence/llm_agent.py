@@ -12,9 +12,6 @@ import numpy as np
 from .core import CollaborationAction, Level, PeakGameConfig, PeakObservation
 
 
-ALLOWED_LEVELS: tuple[Level, ...] = (0, 1, 5, 20, 100, "all")
-
-
 @dataclass(frozen=True)
 class LLMDecision:
     position: np.ndarray
@@ -148,8 +145,8 @@ Observed peers this round, sorted by peer score:
 
 Choose:
 1. your next {config.dimensions}D position
-2. how many peers can initially see your information next round: next_visibility in [0, 1, 5, 20, 100, "all"]
-3. how many peers you will request information from next round: next_request_count in [0, 1, 5, 20, 100, "all"]
+2. how many peers can initially see your information next round: next_visibility as any non-negative integer or "all"
+3. how many peers you will request information from next round: next_request_count as any non-negative integer or "all"
 4. whether your requests offer reciprocal exchange: offer_reciprocal as true or false
 5. probability that you accept incoming requests next round: accept_probability between 0 and 1
 
@@ -188,8 +185,8 @@ def _parse_level(value: Any) -> Level:
     if isinstance(value, str) and value.strip().lower() == "all":
         return "all"
     numeric = int(value)
-    if numeric not in (0, 1, 5, 20, 100):
-        raise ValueError(f"Invalid collaboration level {value!r}")
+    if numeric < 0:
+        raise ValueError(f"Collaboration level must be non-negative, got {value!r}")
     return numeric
 
 
