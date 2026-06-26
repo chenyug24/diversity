@@ -620,11 +620,15 @@ class LLMBlackBoxStrategy(Strategy):
 
         try:
             output = call_openai_llm(prompt=prompt, model=self.model)
-            decision = parse_llm_decision(output, config)
         except Exception:
             if not self.fail_open:
                 raise
             decision = fallback_decision(observation, rng, config)
+        else:
+            try:
+                decision = parse_llm_decision(output, config)
+            except Exception:
+                decision = fallback_decision(observation, rng, config)
 
         self.pending_action = decision_to_action(decision)
         return decision.position
