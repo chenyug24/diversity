@@ -21,6 +21,12 @@ class LLMDecision:
     accept_probability: float
 
 
+@dataclass(frozen=True)
+class PublicationDecision:
+    position: np.ndarray
+    publish: bool
+
+
 def parse_llm_decision(text: str, config: PeakGameConfig) -> LLMDecision:
     """Parse a model JSON response into a clipped game action."""
 
@@ -42,6 +48,20 @@ def parse_llm_decision(text: str, config: PeakGameConfig) -> LLMDecision:
         accept_probability=float(
             np.clip(float(payload.get("accept_probability", 0.5)), 0.0, 1.0)
         ),
+    )
+
+
+def parse_publication_decision(text: str, config: PeakGameConfig) -> PublicationDecision:
+    payload = json.loads(_extract_json_object(text))
+    raw_position = payload.get("position")
+    if not isinstance(raw_position, list) or len(raw_position) != config.dimensions:
+        raise ValueError(
+            f"Expected position to be a list of {config.dimensions} numbers, got {raw_position!r}"
+        )
+    position = np.array([float(value) for value in raw_position], dtype=float)
+    return PublicationDecision(
+        position=np.clip(position, config.lower, config.upper),
+        publish=bool(payload.get("publish", False)),
     )
 
 
@@ -121,8 +141,11 @@ def build_llm_prompt(
 
     example_position = [0 for _ in range(config.dimensions)]
     objective_text = _objective_text(incentive)
+    communication_feedback = _sanitize_feedback(
+        getattr(observation, "communication_feedback", {})
+    )
     return f"""
-You are one agent in a black-box multi-agent search game.
+You are one agent in a data-feedback multi-agent search game.
 
 Known facts:
 - The action space is {config.dimensions}-dimensional.
@@ -130,12 +153,16 @@ Known facts:
 - {objective_text}
 - You do not know the scoring formula.
 - You do not know hidden peak locations or reward components.
+- The environment only gives numerical feedback: your own score, your own history, peer position/score examples revealed through communication, and communication outcomes.
 - Communication has a negotiation phase. Agents choose initial visibility, request peer information, offer reciprocal exchange, and accept or reject incoming requests.
-- Available peer examples came from initial visibility or accepted information exchanges.
+- Available peer examples came only from initial visibility or accepted information exchanges.
 
 Current round: {observation.round_index}
 Your current position: {_round_vector(observation.own_position)}
 Your current total score: {round(float(observation.own_score), 4)}
+
+Communication feedback from this round:
+{json.dumps(communication_feedback, separators=(",", ":"))}
 
 Your recent history:
 {json.dumps(history_rows, separators=(",", ":"))}
@@ -155,6 +182,70 @@ Return only valid JSON with this exact shape:
 """.strip()
 
 
+def build_publication_prompt(
+    observation: PeakObservation,
+    config: PeakGameConfig,
+    history: list[tuple[np.ndarray, float]],
+    incentive: str = "research",
+    max_history: int = 8,
+    max_public_records: int = 18,
+) -> str:
+    history_rows = [
+        {
+            "position": _round_vector(position),
+            "score": round(float(score), 4),
+        }
+        for position, score in history[-max_history:]
+    ]
+    public_order = np.argsort(observation.observed_scores)[::-1]
+    public_rows: list[dict[str, Any]] = []
+    for idx in public_order[:max_public_records]:
+        public_rows.append(
+            {
+                "published_by_agent": int(observation.observed_ids[idx]),
+                "location": _round_vector_precise(observation.observed_positions[idx]),
+                "value": round(float(observation.observed_scores[idx]), 4),
+            }
+        )
+    feedback = _sanitize_feedback(getattr(observation, "communication_feedback", {}))
+    example_position = [0 for _ in range(config.dimensions)]
+    objective = _publication_objective_text(incentive)
+    return f"""
+You are one research agent in a public research publication game.
+
+Known facts:
+- The research space is {config.dimensions}-dimensional and continuous.
+- Every coordinate must be between {config.lower} and {config.upper}.
+- {objective}
+- You do not know the scoring formula or hidden landscape.
+- You receive your own true value after trying a location.
+- Publishing is optional. If you publish, your current location and true value become visible to all agents.
+- There is no private exchange, no private messaging, and no selective sharing.
+- A location already in the public registry cannot be submitted again exactly.
+- Because the space is continuous, nearby locations are allowed; only exact reuse of a published location is blocked.
+
+Current round: {observation.round_index}
+Your current location: {_round_vector_precise(observation.own_position)}
+Your current true value: {round(float(observation.own_score), 4)}
+
+Your recent private history:
+{json.dumps(history_rows, separators=(",", ":"))}
+
+Public registry records visible before this decision, sorted by value:
+{json.dumps(public_rows, separators=(",", ":"))}
+
+Feedback:
+{json.dumps(feedback, separators=(",", ":"))}
+
+Choose:
+1. publish: whether to publish your current location and value to everyone
+2. position: your next {config.dimensions}D location; it must not exactly match any public registry location
+
+Return only valid JSON with this exact shape:
+{{"publish":true,"position":{json.dumps(example_position)}}}
+""".strip()
+
+
 def _objective_text(incentive: str) -> str:
     if incentive == "cooperative":
         return (
@@ -167,6 +258,23 @@ def _objective_text(incentive: str) -> str:
             "outperform the other agents."
         )
     return "Your objective is to maximize future total score."
+
+
+def _publication_objective_text(incentive: str) -> str:
+    if incentive == "cooperative":
+        return (
+            "Cooperative objective: help the research group discover high-value "
+            "research directions while avoiding exact duplication of published work."
+        )
+    if incentive == "competitive":
+        return (
+            "Competitive objective: maximize your own future research value and "
+            "avoid giving competitors unnecessary help."
+        )
+    return (
+        "Research objective: discover high-value research directions and decide "
+        "when public publication is useful."
+    )
 
 
 def _extract_json_object(text: str) -> str:
@@ -194,6 +302,56 @@ def _round_vector(position: np.ndarray) -> list[float]:
     return [round(float(value), 2) for value in position.tolist()]
 
 
+def _sanitize_feedback(feedback: dict[str, Any]) -> dict[str, Any]:
+    """Convert communication feedback to compact JSON-safe values for prompts."""
+
+    compact_keys = [
+        "initial_visible_count",
+        "initially_visible_to_count",
+        "requests_sent",
+        "requests_received",
+        "accepted_requests_sent",
+        "accepted_requests_received",
+        "rejected_requests_sent",
+        "rejected_requests_received",
+        "reciprocal_offers_sent",
+        "reciprocal_exchanges",
+        "observed_count",
+        "initial_visible_source_ids",
+        "requested_target_ids",
+        "accepted_target_ids",
+        "rejected_target_ids",
+        "incoming_requester_ids",
+        "accepted_incoming_requester_ids",
+        "rejected_incoming_requester_ids",
+        "observed_agent_ids",
+        "communication_mode",
+        "public_registry_size",
+        "public_record_rounds",
+        "private_exchange_allowed",
+        "published_locations_blocked",
+        "blocked_resubmissions",
+        "blocked_position",
+        "blocked_reason",
+    ]
+    sanitized: dict[str, Any] = {}
+    for key in compact_keys:
+        if key not in feedback:
+            continue
+        value = feedback[key]
+        if isinstance(value, np.ndarray):
+            sanitized[key] = value.astype(int).tolist()
+        elif isinstance(value, list):
+            sanitized[key] = [int(item) if isinstance(item, (np.integer, int)) else item for item in value]
+        elif isinstance(value, (np.integer, int)):
+            sanitized[key] = int(value)
+        elif isinstance(value, (np.floating, float)):
+            sanitized[key] = round(float(value), 4)
+        else:
+            sanitized[key] = value
+    return sanitized
+
+
 def fallback_decision(
     observation: PeakObservation,
     rng: np.random.Generator,
@@ -215,6 +373,31 @@ def fallback_decision(
         offer_reciprocal=True,
         accept_probability=0.6,
     )
+
+
+def fallback_publication_decision(
+    observation: PeakObservation,
+    rng: np.random.Generator,
+    config: PeakGameConfig,
+) -> PublicationDecision:
+    if observation.observed_positions.size and observation.observed_scores.size:
+        best = int(np.argmax(observation.observed_scores))
+        center = observation.observed_positions[best]
+        scale = max(3.0, 20.0 * (1.0 - observation.round_index / max(1, config.rounds - 1)))
+        position = center + rng.normal(0.0, scale, size=config.dimensions)
+        public_median = float(np.median(observation.observed_scores))
+        publish = float(observation.own_score) >= public_median
+    else:
+        position = rng.uniform(config.lower, config.upper, size=config.dimensions)
+        publish = True
+    return PublicationDecision(
+        position=np.clip(position, config.lower, config.upper),
+        publish=publish,
+    )
+
+
+def _round_vector_precise(position: np.ndarray) -> list[float]:
+    return [round(float(value), 6) for value in position.tolist()]
 
 
 def decision_to_action(decision: LLMDecision) -> CollaborationAction:

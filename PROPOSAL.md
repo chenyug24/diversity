@@ -153,7 +153,43 @@ another agent's newly generated point until the next round. In API-based
 implementations, all model calls for a round can be dispatched concurrently, but
 their outputs are applied only after the full set of agent decisions returns.
 
-## 7. Baselines
+## 7. Initial Public Publication Case
+
+The first experimental case should be deliberately simple. Before adding richer
+communication mechanisms such as random observation or negotiated exchange,
+agents should be tested in a public research-publication setting.
+
+The setting is:
+
+```text
+- Each agent chooses a research location in the continuous search space.
+- The environment returns that agent's true value at the location.
+- The agent may optionally publish its current location and true value.
+- Published records enter a public registry visible to all agents.
+- There is no private exchange, no selective messaging, and no negotiation.
+- A location already in the public registry cannot be submitted again exactly.
+```
+
+The public registry represents prior work. Once a research direction has been
+published, another agent cannot claim the exact same direction again. Because the
+space is continuous, nearby locations are still allowed in the first version;
+only exact reuse of a published location is blocked.
+
+In this case, the environment gives each agent only:
+
+```text
+- its own current location,
+- its own current true score,
+- its own recent location/score history,
+- the public registry of published location/score pairs.
+```
+
+The hidden peaks, global optimum, score formula, and population-level diagnostics
+remain hidden from the agents. This case isolates the basic mechanism: given only
+publicly published research feedback, do agents learn useful directions, avoid
+exact duplication, and decide when publication helps or hurts future search?
+
+## 8. Baselines
 
 The benchmark compares:
 
@@ -192,7 +228,7 @@ LLM Black-Box Agent:
   (position, total score) pairs.
 ```
 
-## 8. Evaluation Metrics
+## 9. Evaluation Metrics
 
 The primary metric is the highest value discovered by any agent across all
 rounds:
@@ -252,7 +288,7 @@ Negotiation metrics:
 These metrics are computed by the environment after the run. They are not shown
 to agents during play.
 
-## 9. Experiments
+## 10. Experiments
 
 The first experiment compares collaboration regimes:
 
@@ -274,7 +310,7 @@ high-scoring regions.
 The fourth experiment varies the observation mechanism, including noisy positions,
 delayed observations, and limited communication budgets.
 
-## 10. Expected Results
+## 11. Expected Results
 
 We expect score-following and full-collaboration agents to locate high-scoring
 regions quickly, but also to concentrate many agents near the same visible
@@ -289,7 +325,7 @@ We expect strategic communication to perform best when agents use visibility and
 inspection decisions to learn from promising regions without prematurely
 collapsing into redundant search.
 
-## 11. Contribution
+## 12. Contribution
 
 Black-Box Peak-Divergence Game contributes:
 
@@ -301,7 +337,7 @@ Black-Box Peak-Divergence Game contributes:
 The benchmark directly tests whether collaboration helps agents learn useful
 information or instead causes harmful imitation.
 
-## 12. Conclusion
+## 13. Conclusion
 
 This project studies communication and incentives under partial feedback. Agents
 search for high-scoring regions in a hidden 10-dimensional landscape, but they

@@ -76,6 +76,40 @@ This makes collaboration a source of uncertain information. Reading high-scoring
 peers can reveal useful regions, but it may also cause imitation and crowding.
 Sharing a good location can help others learn, but may attract competitors.
 
+## Task 1: Public Research Publication
+
+The simplest research scenario removes private exchange entirely. Agents act like
+researchers exploring a continuous hidden opportunity landscape.
+
+```text
+1. Each agent submits a research location.
+2. The environment returns that agent's true score.
+3. The agent may optionally publish its current location and true score.
+4. Published records enter a public registry visible to all agents in later decisions.
+5. A location already in the public registry cannot be submitted again exactly.
+6. No private messages, private exchanges, requests, or accept/reject negotiation exist.
+```
+
+This first task asks whether public publication helps agents learn useful
+directions, or whether it mainly creates imitation around already published
+successes. The space is continuous, so nearby locations are allowed; only exact
+reuse of a public location is blocked.
+
+Run it with:
+
+```bash
+python3 scripts/run_publication_case.py \
+  --strategy score_following \
+  --agents 6 \
+  --rounds 20 \
+  --peaks 2 \
+  --dimensions 2 \
+  --out results/publication_case
+```
+
+For API-backed agents, use `--strategy llm_public_research`,
+`llm_public_cooperative`, or `llm_public_competitive`.
+
 ## Negotiated Communication
 
 At every round, the benchmark follows the proposal's communication process:
@@ -101,7 +135,11 @@ Values larger than the number of available peers are capped at all available
 peers.
 
 The evaluator records visibility, requests, reciprocal offers, accept/reject
-outcomes, and the final number of peer records observed by each agent.
+outcomes, and the final number of peer records observed by each agent. The
+agent also receives a compact communication-feedback record for the current
+round, including which requests were accepted or rejected and which peer records
+were actually observed. This keeps the first case simple: agents only adapt from
+numeric feedback and communication outcomes.
 
 Agent updates are synchronous within a round. The environment builds all
 observations from the same previous population state, asks all agents for their
@@ -141,6 +179,23 @@ Outputs:
 - `results/default/round_metrics.csv`: round-by-round diagnostic metrics.
 - `results/default/peaks.csv`: hidden peak metadata for analysis.
 - `results/default/summary.md`: ranked strategy summary.
+
+Run the simplest feedback-only communication case:
+
+```bash
+python3 scripts/run_feedback_communication_case.py \
+  --strategy strategic_collaboration \
+  --agents 6 \
+  --rounds 20 \
+  --peaks 2 \
+  --dimensions 2 \
+  --out results/feedback_case
+```
+
+This exports `agent_round_feedback.csv`, `observed_peer_examples.csv`,
+`negotiation_edges.csv`, `metrics_by_round.csv`, and two communication plots.
+Use `--strategy llm_cooperative` or `--strategy llm_competitive` when you want
+the same first case with API-backed agents.
 
 Generate figures from an experiment directory:
 

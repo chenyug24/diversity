@@ -9,10 +9,13 @@ from .core import CollaborationAction, Level, PeakGameConfig, PeakObservation
 from .llm_agent import (
     LLMDecision,
     build_llm_prompt,
+    build_publication_prompt,
     call_openai_llm,
     decision_to_action,
     fallback_decision,
+    fallback_publication_decision,
     parse_llm_decision,
+    parse_publication_decision,
 )
 
 
@@ -239,6 +242,36 @@ class Strategy:
         config: PeakGameConfig,
     ) -> np.ndarray:
         return observation.own_position
+
+    def choose_publication(
+        self,
+        observation: PeakObservation,
+        rng: np.random.Generator,
+        config: PeakGameConfig,
+    ) -> bool:
+        if observation.observed_scores.size == 0:
+            return True
+        return float(observation.own_score) >= float(np.median(observation.observed_scores))
+
+    def update_publication_decision(
+        self,
+        observation: PeakObservation,
+        rng: np.random.Generator,
+        config: PeakGameConfig,
+    ) -> tuple[np.ndarray, bool]:
+        publish = self.choose_publication(observation, rng, config)
+        position = self.update_position(observation, rng, config)
+        return position, publish
+
+    def repair_blocked_position(
+        self,
+        blocked_position: np.ndarray,
+        observation: PeakObservation,
+        rng: np.random.Generator,
+        config: PeakGameConfig,
+    ) -> np.ndarray:
+        scale = max(1e-5, (config.upper - config.lower) * 1e-6)
+        return _clip(blocked_position + rng.normal(0.0, scale, size=config.dimensions), config)
 
 
 class RandomStrategy(Strategy):
@@ -646,6 +679,90 @@ class LLMCompetitiveStrategy(LLMBlackBoxStrategy):
     incentive: str = "competitive"
 
 
+@dataclass
+class LLMPublicResearchStrategy(Strategy):
+    name = "llm_public_research"
+    model: str | None = None
+    incentive: str = "research"
+    history_limit: int = 12
+    fail_open: bool = False
+    history: list[tuple[np.ndarray, float]] = field(default_factory=list)
+
+    def update_publication_decision(
+        self,
+        observation: PeakObservation,
+        rng: np.random.Generator,
+        config: PeakGameConfig,
+    ) -> tuple[np.ndarray, bool]:
+        self.history.append((observation.own_position.copy(), float(observation.own_score)))
+        self.history = self.history[-self.history_limit :]
+        prompt = build_publication_prompt(
+            observation,
+            config,
+            self.history,
+            incentive=self.incentive,
+        )
+        try:
+            output = call_openai_llm(prompt=prompt, model=self.model)
+        except Exception:
+            if not self.fail_open:
+                raise
+            decision = fallback_publication_decision(observation, rng, config)
+        else:
+            try:
+                decision = parse_publication_decision(output, config)
+            except Exception:
+                decision = fallback_publication_decision(observation, rng, config)
+        return decision.position, decision.publish
+
+    def repair_blocked_position(
+        self,
+        blocked_position: np.ndarray,
+        observation: PeakObservation,
+        rng: np.random.Generator,
+        config: PeakGameConfig,
+    ) -> np.ndarray:
+        feedback = dict(observation.communication_feedback)
+        feedback["blocked_position"] = [round(float(value), 6) for value in blocked_position]
+        feedback["blocked_reason"] = "The location exactly matches a public registry entry."
+        retry_observation = PeakObservation(
+            round_index=observation.round_index,
+            agent_id=observation.agent_id,
+            own_position=observation.own_position,
+            own_score=observation.own_score,
+            observed_ids=observation.observed_ids,
+            observed_positions=observation.observed_positions,
+            observed_scores=observation.observed_scores,
+            communication_feedback=feedback,
+        )
+        decision = fallback_publication_decision(retry_observation, rng, config)
+        if not self.fail_open:
+            prompt = build_publication_prompt(
+                retry_observation,
+                config,
+                self.history,
+                incentive=self.incentive,
+            )
+            try:
+                output = call_openai_llm(prompt=prompt, model=self.model)
+                decision = parse_publication_decision(output, config)
+            except Exception:
+                decision = fallback_publication_decision(retry_observation, rng, config)
+        return decision.position
+
+
+@dataclass
+class LLMPublicCooperativeStrategy(LLMPublicResearchStrategy):
+    name = "llm_public_cooperative"
+    incentive: str = "cooperative"
+
+
+@dataclass
+class LLMPublicCompetitiveStrategy(LLMPublicResearchStrategy):
+    name = "llm_public_competitive"
+    incentive: str = "competitive"
+
+
 StrategyFactory = Callable[[], Strategy]
 
 
@@ -662,6 +779,9 @@ _STRATEGIES: dict[str, StrategyFactory] = {
     "llm_blackbox": LLMBlackBoxStrategy,
     "llm_cooperative": LLMCooperativeStrategy,
     "llm_competitive": LLMCompetitiveStrategy,
+    "llm_public_research": LLMPublicResearchStrategy,
+    "llm_public_cooperative": LLMPublicCooperativeStrategy,
+    "llm_public_competitive": LLMPublicCompetitiveStrategy,
 }
 
 

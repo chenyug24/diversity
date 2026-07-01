@@ -242,11 +242,16 @@ def _run_negotiation(
     initial_visible_sources = _initial_visible_sources_by_reader(
         [action.visibility for action in actions], rng
     )
+    initially_visible_to_counts = [0 for _ in range(num_agents)]
+    for visible_sources in initial_visible_sources:
+        for source_id in visible_sources:
+            initially_visible_to_counts[source_id] += 1
     observed_source_sets = [set(sources) for sources in initial_visible_sources]
     exchanges: list[NegotiationExchange] = []
     stats: list[dict[str, Any]] = [
         {
             "initial_visible_count": len(initial_visible_sources[agent_id]),
+            "initially_visible_to_count": initially_visible_to_counts[agent_id],
             "requests_sent": 0,
             "requests_received": 0,
             "accepted_requests_sent": 0,
@@ -255,6 +260,16 @@ def _run_negotiation(
             "rejected_requests_received": 0,
             "reciprocal_offers_sent": 0,
             "reciprocal_exchanges": 0,
+            "initial_visible_source_ids": sorted(
+                int(source_id) for source_id in initial_visible_sources[agent_id]
+            ),
+            "requested_target_ids": [],
+            "accepted_target_ids": [],
+            "rejected_target_ids": [],
+            "incoming_requester_ids": [],
+            "accepted_incoming_requester_ids": [],
+            "rejected_incoming_requester_ids": [],
+            "reciprocal_observed_agent_ids": [],
         }
         for agent_id in range(num_agents)
     ]
@@ -287,6 +302,8 @@ def _run_negotiation(
 
             stats[requester_id]["requests_sent"] += 1
             stats[target_id]["requests_received"] += 1
+            stats[requester_id]["requested_target_ids"].append(target_id)
+            stats[target_id]["incoming_requester_ids"].append(requester_id)
             if reciprocal_offer:
                 stats[requester_id]["reciprocal_offers_sent"] += 1
 
@@ -294,13 +311,19 @@ def _run_negotiation(
                 observed_source_sets[requester_id].add(target_id)
                 stats[requester_id]["accepted_requests_sent"] += 1
                 stats[target_id]["accepted_requests_received"] += 1
+                stats[requester_id]["accepted_target_ids"].append(target_id)
+                stats[target_id]["accepted_incoming_requester_ids"].append(requester_id)
                 if reciprocal_offer:
                     observed_source_sets[target_id].add(requester_id)
                     stats[requester_id]["reciprocal_exchanges"] += 1
                     stats[target_id]["reciprocal_exchanges"] += 1
+                    stats[requester_id]["reciprocal_observed_agent_ids"].append(target_id)
+                    stats[target_id]["reciprocal_observed_agent_ids"].append(requester_id)
             else:
                 stats[requester_id]["rejected_requests_sent"] += 1
                 stats[target_id]["rejected_requests_received"] += 1
+                stats[requester_id]["rejected_target_ids"].append(target_id)
+                stats[target_id]["rejected_incoming_requester_ids"].append(requester_id)
 
             exchanges.append(
                 NegotiationExchange(
@@ -317,6 +340,7 @@ def _run_negotiation(
     for reader_id, visible in enumerate(observed_source_sets):
         observed_ids = np.array(sorted(visible), dtype=int)
         stats[reader_id]["observed_count"] = len(observed_ids)
+        stats[reader_id]["observed_agent_ids"] = [int(agent_id) for agent_id in observed_ids]
 
         observed_positions = positions[observed_ids].copy()
         if config.observation_noise > 0.0 and len(observed_ids) > 0:
@@ -460,6 +484,7 @@ def run_game(
                     observed_ids=observed_ids,
                     observed_positions=observed_positions,
                     observed_scores=observed_scores,
+                    communication_feedback=communication_stats[agent_id].copy(),
                 )
             )
 

@@ -78,6 +78,14 @@ class NegotiationExchange:
 
 
 @dataclass(frozen=True)
+class PublishedRecord:
+    round_index: int
+    agent_id: int
+    position: np.ndarray
+    score: float
+
+
+@dataclass(frozen=True)
 class PeakObservation:
     round_index: int
     agent_id: int
@@ -86,6 +94,7 @@ class PeakObservation:
     observed_ids: np.ndarray
     observed_positions: np.ndarray
     observed_scores: np.ndarray
+    communication_feedback: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -154,4 +163,54 @@ class PeakRunResult:
             "peak_coverage": float(final.get("peak_coverage", 0.0)),
             "max_peak_occupancy": float(final.get("max_peak_occupancy", 0.0)),
             "peak_entropy": float(final.get("peak_entropy", 0.0)),
+        }
+
+
+@dataclass
+class PublicationRunResult:
+    config: PeakGameConfig
+    landscape: PeakLandscape
+    seed: int
+    positions: np.ndarray
+    final_scores: np.ndarray
+    final_values: np.ndarray
+    final_diversity: np.ndarray
+    final_origin: np.ndarray
+    final_peak_ids: np.ndarray
+    published_records: list[PublishedRecord] = field(default_factory=list)
+    publication_history: list[list[dict[str, Any]]] = field(default_factory=list)
+    position_history: list[np.ndarray] = field(default_factory=list)
+    round_metrics: list[dict[str, Any]] = field(default_factory=list)
+    best_score_found: float = 0.0
+    best_value_found: float = 0.0
+    best_value_found_round: int = 0
+    best_value_found_agent_id: int = -1
+
+    def final_summary(self) -> dict[str, float]:
+        final = self.round_metrics[-1] if self.round_metrics else {}
+        global_optimum = float(final.get("global_optimum", float(np.max(self.landscape.heights))))
+        best_value_found = float(final.get("best_value_found", self.best_value_found))
+        ratio = best_value_found / global_optimum if global_optimum > 0.0 else 0.0
+        return {
+            "mean_score": float(np.mean(self.final_scores)),
+            "best_score": float(np.max(self.final_scores)),
+            "global_optimum": global_optimum,
+            "best_value_found": best_value_found,
+            "best_value_found_ratio": float(final.get("best_value_found_ratio", ratio)),
+            "best_value_found_gap": float(
+                final.get("best_value_found_gap", max(0.0, global_optimum - best_value_found))
+            ),
+            "best_value_found_round": float(
+                final.get("best_value_found_round", self.best_value_found_round)
+            ),
+            "best_value_found_agent_id": float(
+                final.get("best_value_found_agent_id", self.best_value_found_agent_id)
+            ),
+            "published_count": float(len(self.published_records)),
+            "final_public_registry_size": float(
+                final.get("public_registry_size", len(self.published_records))
+            ),
+            "mean_diversity": float(np.mean(self.final_diversity)),
+            "peak_coverage": float(final.get("peak_coverage", 0.0)),
+            "max_peak_occupancy": float(final.get("max_peak_occupancy", 0.0)),
         }

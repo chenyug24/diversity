@@ -15,7 +15,14 @@ from peak_divergence.game import (
     system_optimization_index,
     value_positions,
 )
-from peak_divergence.llm_agent import build_llm_prompt, load_local_env, parse_llm_decision
+from peak_divergence.publication_game import is_published_location, run_publication_game
+from peak_divergence.llm_agent import (
+    build_llm_prompt,
+    build_publication_prompt,
+    load_local_env,
+    parse_llm_decision,
+    parse_publication_decision,
+)
 from peak_divergence.strategies import Strategy, make_population
 
 
@@ -27,6 +34,27 @@ class ObservationInspectorStrategy(Strategy):
         assert not hasattr(observation, "own_diversity")
         assert not hasattr(observation, "own_origin")
         assert not hasattr(observation, "observed_values")
+        return observation.own_position
+
+
+class CommunicationFeedbackInspectorStrategy(Strategy):
+    name = "communication_feedback_inspector"
+
+    def choose_collaboration(self, round_index, position, score, config, rng):
+        from peak_divergence.core import CollaborationAction
+
+        return CollaborationAction(
+            visibility=1,
+            request_count=1,
+            offer_reciprocal=True,
+            accept_probability=1.0,
+        )
+
+    def update_position(self, observation, rng, config):
+        assert "observed_count" in observation.communication_feedback
+        assert "observed_agent_ids" in observation.communication_feedback
+        assert "requested_target_ids" in observation.communication_feedback
+        assert "accepted_target_ids" in observation.communication_feedback
         return observation.own_position
 
 
@@ -51,6 +79,29 @@ class PeakThenLeaveStrategy(Strategy):
 
     def update_position(self, observation, rng, config):
         return np.array([100.0, 100.0])
+
+
+class NeverPublishStrategy(Strategy):
+    name = "never_publish"
+
+    def choose_publication(self, observation, rng, config):
+        return False
+
+    def update_position(self, observation, rng, config):
+        return observation.own_position
+
+
+class StayAndPublishStrategy(Strategy):
+    name = "stay_and_publish"
+
+    def initial_position(self, agent_id, rng, config):
+        return np.array([10.0 + agent_id, 20.0 + agent_id])
+
+    def choose_publication(self, observation, rng, config):
+        return True
+
+    def update_position(self, observation, rng, config):
+        return observation.own_position
 
 
 class PeakDivergenceGameTests(unittest.TestCase):
@@ -144,6 +195,14 @@ class PeakDivergenceGameTests(unittest.TestCase):
         config = PeakGameConfig(num_agents=6, dimensions=3, rounds=2, num_peaks=2)
         run_game([ObservationInspectorStrategy() for _ in range(6)], config, seed=12)
 
+    def test_agent_observation_includes_communication_feedback(self):
+        config = PeakGameConfig(num_agents=4, dimensions=2, rounds=1, num_peaks=1)
+        run_game(
+            [CommunicationFeedbackInspectorStrategy() for _ in range(4)],
+            config,
+            seed=15,
+        )
+
     def test_parse_llm_decision_clips_position(self):
         config = PeakGameConfig(num_agents=4, dimensions=3)
         decision = parse_llm_decision(
@@ -173,6 +232,15 @@ class PeakDivergenceGameTests(unittest.TestCase):
         self.assertEqual(decision.next_visibility, 2)
         self.assertEqual(decision.next_request_count, 3)
 
+    def test_parse_publication_decision(self):
+        config = PeakGameConfig(num_agents=4, dimensions=2)
+        decision = parse_publication_decision(
+            '{"publish":true,"position":[-1,123]}',
+            config,
+        )
+        self.assertTrue(decision.publish)
+        self.assertTrue(np.allclose(decision.position, [0.0, 100.0]))
+
     def test_llm_prompt_does_not_reveal_score_formula(self):
         config = PeakGameConfig(num_agents=6, dimensions=3, rounds=2, num_peaks=2)
         captured = {}
@@ -185,6 +253,8 @@ class PeakDivergenceGameTests(unittest.TestCase):
         run_game([PromptInspectorStrategy() for _ in range(6)], config, seed=14)
         prompt = captured["prompt"]
         self.assertIn("You do not know the scoring formula", prompt)
+        self.assertIn("Communication feedback from this round", prompt)
+        self.assertIn("observed_count", prompt)
         self.assertIn("negotiation phase", prompt)
         self.assertNotIn("beta_diversity", prompt)
         self.assertNotIn("gamma_origin", prompt)
@@ -210,6 +280,28 @@ class PeakDivergenceGameTests(unittest.TestCase):
         self.assertIn("Competitive objective", competitive)
         self.assertIn("outperform", competitive)
 
+    def test_publication_prompt_has_no_private_exchange(self):
+        config = PeakGameConfig(num_agents=3, dimensions=2, rounds=1, num_peaks=1)
+        observation = type(
+            "Observation",
+            (),
+            {
+                "round_index": 0,
+                "agent_id": 0,
+                "own_position": np.array([1.0, 2.0]),
+                "own_score": 3.0,
+                "observed_ids": np.array([1], dtype=int),
+                "observed_positions": np.array([[4.0, 5.0]]),
+                "observed_scores": np.array([6.0]),
+                "communication_feedback": {"public_registry_size": 1},
+            },
+        )()
+        prompt = build_publication_prompt(observation, config, [])
+        self.assertIn("Publishing is optional", prompt)
+        self.assertIn("There is no private exchange", prompt)
+        self.assertIn('"publish":true', prompt)
+        self.assertNotIn("accept_probability", prompt)
+
     def test_load_local_env_reads_missing_keys(self):
         with TemporaryDirectory() as temp_dir:
             env_path = Path(temp_dir) / ".env"
@@ -220,6 +312,33 @@ class PeakDivergenceGameTests(unittest.TestCase):
 
                 self.assertEqual(os.getenv("OPENAI_API_KEY"), "sk-test")
                 self.assertEqual(os.getenv("OPENAI_AGENT_MODEL"), "gpt-test")
+
+    def test_publication_game_allows_optional_non_publication(self):
+        config = PeakGameConfig(num_agents=3, dimensions=2, rounds=2, num_peaks=1)
+        result = run_publication_game(
+            [NeverPublishStrategy() for _ in range(3)],
+            config=config,
+            seed=33,
+        )
+        self.assertEqual(len(result.published_records), 0)
+        self.assertTrue(all(row["published_count_this_round"] == 0.0 for row in result.round_metrics))
+
+    def test_publication_game_blocks_exact_published_location_reuse(self):
+        config = PeakGameConfig(num_agents=2, dimensions=2, rounds=1, num_peaks=1)
+        result = run_publication_game(
+            [StayAndPublishStrategy() for _ in range(2)],
+            config=config,
+            seed=34,
+        )
+        self.assertEqual(len(result.published_records), 2)
+        blocked_counts = [
+            row["blocked_resubmissions"]
+            for row in result.publication_history[0]
+        ]
+        self.assertTrue(all(count > 0 for count in blocked_counts))
+        published_positions = np.vstack([record.position for record in result.published_records])
+        for position in result.positions:
+            self.assertFalse(is_published_location(position, published_positions))
 
 
 if __name__ == "__main__":
