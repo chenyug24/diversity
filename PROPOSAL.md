@@ -200,7 +200,7 @@ TopPeaks = highest 3 peaks by h_m, or all peaks if K < 3.
 
 The group succeeds when it discovers these top peaks. A top peak is counted as
 discovered if at least one agent reaches a point whose contribution from that
-peak is at least a fixed fraction of the peak height, for example `0.9 * h_m`.
+peak is at least a fixed fraction of the peak height, by default `0.7 * h_m`.
 This means the benchmark rewards discovering the best research directions, not
 only finding one single best point.
 
@@ -254,7 +254,7 @@ top_peak_coverage = discovered_top_peaks / min(3, K).
 By default, a top peak is considered discovered if:
 
 ```text
-V_m(z_i,t) >= 0.9 * h_m
+V_m(z_i,t) >= 0.7 * h_m
 ```
 
 for at least one agent `i` and round `t`. Full success means:

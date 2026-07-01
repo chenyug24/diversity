@@ -155,7 +155,7 @@ class PeakDivergenceGameTests(unittest.TestCase):
             dimensions=2,
             num_peaks=4,
             top_peak_count=3,
-            top_peak_discovery_fraction=0.90,
+            top_peak_discovery_fraction=0.70,
         )
         landscape = PeakLandscape(
             centers=np.array(

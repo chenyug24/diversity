@@ -31,7 +31,7 @@ class PeakGameConfig:
     min_peak_l2_distance: float = 45.0
     discovery_value_fraction: float = 0.25
     top_peak_count: int = 3
-    top_peak_discovery_fraction: float = 0.90
+    top_peak_discovery_fraction: float = 0.70
     observation_noise: float = 0.0
     delayed_observation: bool = False
     parallel_agent_updates: bool = True

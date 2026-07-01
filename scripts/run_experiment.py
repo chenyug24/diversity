@@ -45,7 +45,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--observation-noise", type=float, default=0.0)
     parser.add_argument("--delayed-observation", action="store_true")
     parser.add_argument("--top-peak-count", type=int, default=3)
-    parser.add_argument("--top-peak-discovery-fraction", type=float, default=0.90)
+    parser.add_argument("--top-peak-discovery-fraction", type=float, default=0.70)
     parser.add_argument("--sequential-agent-updates", action="store_true")
     parser.add_argument("--max-parallel-agent-updates", type=int, default=None)
     parser.add_argument("--write-agent-scores", action="store_true")

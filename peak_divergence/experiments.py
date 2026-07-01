@@ -41,7 +41,7 @@ def run_homogeneous_suite(
     parallel_agent_updates: bool = True,
     max_parallel_agent_updates: int | None = None,
     top_peak_count: int = 3,
-    top_peak_discovery_fraction: float = 0.90,
+    top_peak_discovery_fraction: float = 0.70,
     write_agent_scores: bool = False,
 ) -> dict[str, dict[str, float]]:
     out_dir.mkdir(parents=True, exist_ok=True)

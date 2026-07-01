@@ -40,7 +40,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--peak-width-min", type=float, default=28.0)
     parser.add_argument("--peak-width-max", type=float, default=48.0)
     parser.add_argument("--top-peak-count", type=int, default=3)
-    parser.add_argument("--top-peak-discovery-fraction", type=float, default=0.90)
+    parser.add_argument("--top-peak-discovery-fraction", type=float, default=0.70)
     parser.add_argument("--sequential-agent-updates", action="store_true")
     parser.add_argument("--max-parallel-agent-updates", type=int, default=None)
     parser.add_argument("--exact-match-atol", type=float, default=1e-9)

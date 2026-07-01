@@ -40,7 +40,7 @@ target is the top three peaks by hidden peak height:
 top_peak_coverage = discovered_top_peaks / min(3, K)
 ```
 
-A top peak is counted as discovered if any agent reaches at least 90% of that
+A top peak is counted as discovered if any agent reaches at least 70% of that
 peak's height. The highest single value found is still logged:
 
 ```text
