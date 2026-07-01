@@ -44,6 +44,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--observation-noise", type=float, default=0.0)
     parser.add_argument("--delayed-observation", action="store_true")
+    parser.add_argument("--top-peak-count", type=int, default=3)
+    parser.add_argument("--top-peak-discovery-fraction", type=float, default=0.90)
     parser.add_argument("--sequential-agent-updates", action="store_true")
     parser.add_argument("--max-parallel-agent-updates", type=int, default=None)
     parser.add_argument("--write-agent-scores", action="store_true")
@@ -65,6 +67,8 @@ def main() -> None:
         strategies=args.strategies,
         observation_noise=args.observation_noise,
         delayed_observation=args.delayed_observation,
+        top_peak_count=args.top_peak_count,
+        top_peak_discovery_fraction=args.top_peak_discovery_fraction,
         parallel_agent_updates=not args.sequential_agent_updates,
         max_parallel_agent_updates=args.max_parallel_agent_updates,
         write_agent_scores=args.write_agent_scores,
@@ -84,6 +88,8 @@ def main() -> None:
             f"best_found_gap={metrics['best_value_found_gap_mean']:.3f} "
             f"final_mean={metrics['mean_score_mean']:.3f} "
             f"final_best_opt={100.0 * metrics['best_value_ratio_mean']:.1f}% "
+            f"top3={metrics['top_peak_coverage_count_mean']:.1f}/"
+            f"{metrics['top_peak_count_mean']:.0f} "
             f"diversity={metrics['mean_diversity_mean']:.3f} "
             f"coverage={metrics['peak_coverage_mean']:.1f} "
             f"max_occ={metrics['max_peak_occupancy_mean']:.1f}"

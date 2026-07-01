@@ -30,6 +30,8 @@ class PeakGameConfig:
     peak_width_range: tuple[float, float] = (28.0, 48.0)
     min_peak_l2_distance: float = 45.0
     discovery_value_fraction: float = 0.25
+    top_peak_count: int = 3
+    top_peak_discovery_fraction: float = 0.90
     observation_noise: float = 0.0
     delayed_observation: bool = False
     parallel_agent_updates: bool = True
@@ -163,6 +165,16 @@ class PeakRunResult:
             "peak_coverage": float(final.get("peak_coverage", 0.0)),
             "max_peak_occupancy": float(final.get("max_peak_occupancy", 0.0)),
             "peak_entropy": float(final.get("peak_entropy", 0.0)),
+            "top_peak_count": float(final.get("top_peak_count", 0.0)),
+            "top_peak_coverage_count": float(final.get("top_peak_coverage_count", 0.0)),
+            "top_peak_coverage_ratio": float(final.get("top_peak_coverage_ratio", 0.0)),
+            "top_peak_success": float(final.get("top_peak_success", 0.0)),
+            "top_peak_first_success_round": float(
+                final.get("top_peak_first_success_round", -1.0)
+            ),
+            "top_peak_discovery_fraction": float(
+                final.get("top_peak_discovery_fraction", self.config.top_peak_discovery_fraction)
+            ),
         }
 
 
@@ -213,4 +225,14 @@ class PublicationRunResult:
             "mean_diversity": float(np.mean(self.final_diversity)),
             "peak_coverage": float(final.get("peak_coverage", 0.0)),
             "max_peak_occupancy": float(final.get("max_peak_occupancy", 0.0)),
+            "top_peak_count": float(final.get("top_peak_count", 0.0)),
+            "top_peak_coverage_count": float(final.get("top_peak_coverage_count", 0.0)),
+            "top_peak_coverage_ratio": float(final.get("top_peak_coverage_ratio", 0.0)),
+            "top_peak_success": float(final.get("top_peak_success", 0.0)),
+            "top_peak_first_success_round": float(
+                final.get("top_peak_first_success_round", -1.0)
+            ),
+            "top_peak_discovery_fraction": float(
+                final.get("top_peak_discovery_fraction", self.config.top_peak_discovery_fraction)
+            ),
         }

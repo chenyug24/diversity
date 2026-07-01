@@ -17,7 +17,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from peak_divergence.core import PeakGameConfig
-from peak_divergence.game import value_positions
+from peak_divergence.game import top_peak_ids, value_positions
 from peak_divergence.publication_game import run_publication_game
 from peak_divergence.strategies import available_strategies, make_population
 
@@ -39,6 +39,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--peak-height-max", type=float, default=120.0)
     parser.add_argument("--peak-width-min", type=float, default=28.0)
     parser.add_argument("--peak-width-max", type=float, default=48.0)
+    parser.add_argument("--top-peak-count", type=int, default=3)
+    parser.add_argument("--top-peak-discovery-fraction", type=float, default=0.90)
     parser.add_argument("--sequential-agent-updates", action="store_true")
     parser.add_argument("--max-parallel-agent-updates", type=int, default=None)
     parser.add_argument("--exact-match-atol", type=float, default=1e-9)
@@ -58,6 +60,8 @@ def main() -> None:
         num_peaks=args.peaks,
         peak_height_range=(args.peak_height_min, args.peak_height_max),
         peak_width_range=(args.peak_width_min, args.peak_width_max),
+        top_peak_count=args.top_peak_count,
+        top_peak_discovery_fraction=args.top_peak_discovery_fraction,
         parallel_agent_updates=not args.sequential_agent_updates,
         max_parallel_agent_updates=args.max_parallel_agent_updates,
     )
@@ -84,6 +88,8 @@ def main() -> None:
         "best_found="
         f"{summary['best_value_found']:.3f} "
         f"ratio={summary['best_value_found_ratio']:.3f} "
+        f"top_peaks={summary['top_peak_coverage_count']:.0f}/"
+        f"{summary['top_peak_count']:.0f} "
         f"published={summary['published_count']:.0f}"
     )
     print(f"public registry: {args.out / 'public_registry.csv'}")
@@ -105,6 +111,9 @@ def write_summary(path: Path, result, strategy: str) -> None:
             "published_value": "true_score",
             "blocked_location_rule": "exact match with public registry is not allowed",
             "continuous_space": True,
+            "success_condition": "discover the highest-value peaks",
+            "top_peak_count": result.config.top_peak_count,
+            "top_peak_discovery_fraction": result.config.top_peak_discovery_fraction,
         },
         **result.final_summary(),
     }
@@ -112,7 +121,16 @@ def write_summary(path: Path, result, strategy: str) -> None:
 
 
 def write_landscape(path: Path, result) -> None:
-    fieldnames = ["peak_id", "height", "width", *[f"mu{k}" for k in range(result.config.dimensions)]]
+    ranked_peak_ids = list(np.argsort(result.landscape.heights)[::-1].astype(int))
+    top_ids = {int(peak_id) for peak_id in top_peak_ids(result.landscape, result.config).tolist()}
+    fieldnames = [
+        "peak_id",
+        "height_rank",
+        "is_top_peak_target",
+        "height",
+        "width",
+        *[f"mu{k}" for k in range(result.config.dimensions)],
+    ]
     with path.open("w", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=fieldnames)
         writer.writeheader()
@@ -120,6 +138,8 @@ def write_landscape(path: Path, result) -> None:
             writer.writerow(
                 {
                     "peak_id": peak_id,
+                    "height_rank": ranked_peak_ids.index(peak_id) + 1,
+                    "is_top_peak_target": peak_id in top_ids,
                     "height": float(result.landscape.heights[peak_id]),
                     "width": float(result.landscape.widths[peak_id]),
                     **{
@@ -266,6 +286,10 @@ def plot_2d_publication(path: Path, result) -> None:
 def plot_publication_metrics(path: Path, result) -> None:
     rounds = np.array([row["round"] for row in result.round_metrics], dtype=int)
     best_ratio = np.array([row["best_value_found_ratio"] for row in result.round_metrics], dtype=float)
+    top_peak_ratio = np.array(
+        [row["top_peak_coverage_ratio"] for row in result.round_metrics],
+        dtype=float,
+    )
     registry_size = np.array([row["public_registry_size"] for row in result.round_metrics], dtype=float)
     published = np.array([row["published_count_this_round"] for row in result.round_metrics], dtype=float)
     blocked = np.array([row["blocked_resubmission_count"] for row in result.round_metrics], dtype=float)
@@ -279,8 +303,10 @@ def plot_publication_metrics(path: Path, result) -> None:
         gridspec_kw={"hspace": 0.24},
     )
     ax_top.plot(rounds, best_ratio * 100.0, color="#2563eb", marker="o")
-    ax_top.set_title("Best Value Found", loc="left", fontweight="bold")
-    ax_top.set_ylabel("% of global optimum")
+    ax_top.plot(rounds, top_peak_ratio * 100.0, color="#16a34a", marker="o")
+    ax_top.set_title("Best Value and Top-Peak Coverage", loc="left", fontweight="bold")
+    ax_top.set_ylabel("%")
+    ax_top.legend(["best value / global optimum", "top-peak coverage"], frameon=False)
     ax_top.grid(True, alpha=0.24)
 
     ax_bottom.bar(rounds, published, color="#93c5fd", label="published this round")

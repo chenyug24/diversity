@@ -136,6 +136,59 @@ def value_ratio(value: float, landscape: PeakLandscape) -> float:
     return float(value / global_optimum)
 
 
+def top_peak_ids(landscape: PeakLandscape, config: PeakGameConfig) -> np.ndarray:
+    """Return the ids of the highest-value peaks used for the success condition."""
+
+    count = max(0, min(int(config.top_peak_count), len(landscape.heights)))
+    if count == 0:
+        return np.empty(0, dtype=int)
+    return np.argsort(landscape.heights)[::-1][:count].astype(int)
+
+
+def discovered_peak_ids(
+    positions: np.ndarray,
+    landscape: PeakLandscape,
+    config: PeakGameConfig,
+) -> np.ndarray:
+    """Return peak ids discovered by any point under the top-peak threshold rule."""
+
+    if positions.size == 0:
+        return np.empty(0, dtype=int)
+    _, _, contributions = value_positions(positions, landscape)
+    thresholds = landscape.heights[None, :] * float(config.top_peak_discovery_fraction)
+    return np.flatnonzero(np.any(contributions >= thresholds, axis=0)).astype(int)
+
+
+def top_peak_discovery_metrics(
+    discovered_ids: set[int] | np.ndarray,
+    landscape: PeakLandscape,
+    config: PeakGameConfig,
+    *,
+    prefix: str = "top_peak",
+) -> dict[str, float | str]:
+    """Summarize how many of the highest peaks have been discovered."""
+
+    target_ids = top_peak_ids(landscape, config)
+    if isinstance(discovered_ids, np.ndarray):
+        discovered_set = {int(peak_id) for peak_id in discovered_ids.tolist()}
+    else:
+        discovered_set = {int(peak_id) for peak_id in discovered_ids}
+    target_set = {int(peak_id) for peak_id in target_ids.tolist()}
+    discovered_top_ids = sorted(target_set & discovered_set)
+    target_count = len(target_ids)
+    coverage_count = len(discovered_top_ids)
+    coverage_ratio = coverage_count / target_count if target_count else 0.0
+    return {
+        f"{prefix}_count": float(target_count),
+        f"{prefix}_ids": ",".join(str(int(peak_id)) for peak_id in target_ids),
+        f"{prefix}_discovered_ids": ",".join(str(peak_id) for peak_id in discovered_top_ids),
+        f"{prefix}_coverage_count": float(coverage_count),
+        f"{prefix}_coverage_ratio": float(coverage_ratio),
+        f"{prefix}_success": float(target_count > 0 and coverage_count == target_count),
+        f"{prefix}_discovery_fraction": float(config.top_peak_discovery_fraction),
+    }
+
+
 def _safe_rate(numerator: float, denominator: float) -> float:
     if denominator <= 0.0:
         return 0.0
@@ -158,10 +211,10 @@ def summarize_positions(
 
     peak_thresholds = landscape.heights * config.discovery_value_fraction
     discovered = contributions[np.arange(num_agents), peak_ids] >= peak_thresholds[peak_ids]
-    discovered_peak_ids = peak_ids[discovered]
+    locally_discovered_peak_ids = peak_ids[discovered]
 
-    if len(discovered_peak_ids) > 0:
-        _, counts = np.unique(discovered_peak_ids, return_counts=True)
+    if len(locally_discovered_peak_ids) > 0:
+        _, counts = np.unique(locally_discovered_peak_ids, return_counts=True)
         probabilities = counts / counts.sum()
         peak_entropy = -float(np.sum(probabilities * np.log2(probabilities + 1e-12)))
         peak_coverage = float(len(counts))
@@ -195,6 +248,12 @@ def summarize_positions(
         "peak_coverage": peak_coverage,
         "max_peak_occupancy": max_peak_occupancy,
         "peak_entropy": peak_entropy,
+        **top_peak_discovery_metrics(
+            discovered_peak_ids(positions, landscape, config),
+            landscape,
+            config,
+            prefix="current_top_peak",
+        ),
     }
 
     if visibility_levels is not None:
@@ -435,6 +494,13 @@ def run_game(
     best_value_found = float(initial_values[best_index])
     best_value_found_round = 0
     best_value_found_agent_id = best_index
+    cumulative_discovered_peak_ids = {
+        int(peak_id) for peak_id in discovered_peak_ids(positions, landscape, config).tolist()
+    }
+    target_top_peak_ids = {int(peak_id) for peak_id in top_peak_ids(landscape, config).tolist()}
+    top_peak_first_success_round = (
+        0 if target_top_peak_ids and target_top_peak_ids <= cumulative_discovered_peak_ids else -1
+    )
 
     for round_index in range(config.rounds):
         scores, values, diversity, origin, _, _ = score_positions(positions, landscape, config)
@@ -494,6 +560,15 @@ def run_game(
         positions = np.clip(np.vstack(next_positions).astype(float), config.lower, config.upper)
         position_history.append(positions.copy())
         current_scores, current_values, _, _, _, _ = score_positions(positions, landscape, config)
+        cumulative_discovered_peak_ids.update(
+            int(peak_id) for peak_id in discovered_peak_ids(positions, landscape, config).tolist()
+        )
+        if (
+            top_peak_first_success_round < 0
+            and target_top_peak_ids
+            and target_top_peak_ids <= cumulative_discovered_peak_ids
+        ):
+            top_peak_first_success_round = round_index + 1
         current_best_index = int(np.argmax(current_values))
         current_best_value = float(current_values[current_best_index])
         if current_best_value > best_value_found:
@@ -518,6 +593,15 @@ def run_game(
         )
         metrics["best_value_found_round"] = float(best_value_found_round)
         metrics["best_value_found_agent_id"] = float(best_value_found_agent_id)
+        metrics.update(
+            top_peak_discovery_metrics(
+                cumulative_discovered_peak_ids,
+                landscape,
+                config,
+                prefix="top_peak",
+            )
+        )
+        metrics["top_peak_first_success_round"] = float(top_peak_first_success_round)
         if communication_stats:
             metrics["mean_observed_count"] = float(
                 np.mean([row["observed_count"] for row in communication_stats])

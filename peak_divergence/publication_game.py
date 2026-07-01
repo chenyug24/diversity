@@ -13,9 +13,12 @@ from .core import (
     PublishedRecord,
 )
 from .game import (
+    discovered_peak_ids,
     generate_landscape,
     score_positions,
     summarize_positions,
+    top_peak_discovery_metrics,
+    top_peak_ids,
     value_ratio,
 )
 
@@ -101,6 +104,13 @@ def run_publication_game(
     best_value_found = float(initial_values[best_index])
     best_value_found_round = 0
     best_value_found_agent_id = best_index
+    cumulative_discovered_peak_ids = {
+        int(peak_id) for peak_id in discovered_peak_ids(positions, landscape, config).tolist()
+    }
+    target_top_peak_ids = {int(peak_id) for peak_id in top_peak_ids(landscape, config).tolist()}
+    top_peak_first_success_round = (
+        0 if target_top_peak_ids and target_top_peak_ids <= cumulative_discovered_peak_ids else -1
+    )
 
     for round_index in range(config.rounds):
         scores, values, _, _, _, _ = score_positions(positions, landscape, config)
@@ -193,6 +203,15 @@ def run_publication_game(
         position_history.append(positions.copy())
 
         next_scores, next_values, _, _, _, _ = score_positions(positions, landscape, config)
+        cumulative_discovered_peak_ids.update(
+            int(peak_id) for peak_id in discovered_peak_ids(positions, landscape, config).tolist()
+        )
+        if (
+            top_peak_first_success_round < 0
+            and target_top_peak_ids
+            and target_top_peak_ids <= cumulative_discovered_peak_ids
+        ):
+            top_peak_first_success_round = round_index + 1
         next_best_index = int(np.argmax(next_values))
         next_best_value = float(next_values[next_best_index])
         if next_best_value > best_value_found:
@@ -222,6 +241,15 @@ def run_publication_game(
         )
         metrics["best_value_found_round"] = float(best_value_found_round)
         metrics["best_value_found_agent_id"] = float(best_value_found_agent_id)
+        metrics.update(
+            top_peak_discovery_metrics(
+                cumulative_discovered_peak_ids,
+                landscape,
+                config,
+                prefix="top_peak",
+            )
+        )
+        metrics["top_peak_first_success_round"] = float(top_peak_first_success_round)
         round_metrics.append(metrics)
 
     final_scores, final_values, final_diversity, final_origin, final_peak_ids, _ = score_positions(

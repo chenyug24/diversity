@@ -40,6 +40,8 @@ def run_homogeneous_suite(
     delayed_observation: bool = False,
     parallel_agent_updates: bool = True,
     max_parallel_agent_updates: int | None = None,
+    top_peak_count: int = 3,
+    top_peak_discovery_fraction: float = 0.90,
     write_agent_scores: bool = False,
 ) -> dict[str, dict[str, float]]:
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -62,6 +64,8 @@ def run_homogeneous_suite(
                 delayed_observation=delayed_observation,
                 parallel_agent_updates=parallel_agent_updates,
                 max_parallel_agent_updates=max_parallel_agent_updates,
+                top_peak_count=top_peak_count,
+                top_peak_discovery_fraction=top_peak_discovery_fraction,
             )
             result = run_game(
                 make_population(strategy_name, num_agents),
@@ -173,6 +177,12 @@ def _aggregate(
         "peak_coverage",
         "max_peak_occupancy",
         "peak_entropy",
+        "top_peak_count",
+        "top_peak_coverage_count",
+        "top_peak_coverage_ratio",
+        "top_peak_success",
+        "top_peak_first_success_round",
+        "top_peak_discovery_fraction",
     ]
     summary: dict[str, dict[str, float]] = {}
     for group, group_rows in grouped.items():

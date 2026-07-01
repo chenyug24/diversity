@@ -5,7 +5,8 @@
 Many multi-agent systems assume that collaboration improves performance. However,
 collaboration can also cause agents to imitate the same successful examples and
 collapse into the same region. In black-box optimization tasks, this can waste
-search capacity and prevent the system from finding the global optimum.
+search capacity and prevent the system from finding multiple high-value
+opportunities.
 
 This project studies how communication and incentive structure affect the ability
 of multiple agents to solve a hidden black-box optimization problem. Agents
@@ -17,8 +18,8 @@ helps explain exploration, convergence, and redundant search.
 The central research question is:
 
 ```text
-Under what communication and incentive conditions do multi-agent systems reach
-the global optimum in a hidden black-box landscape?
+Under what communication and incentive conditions do multi-agent systems
+discover the highest-value opportunities in a hidden black-box landscape?
 ```
 
 The project compares cooperative and competitive settings. In the cooperative
@@ -189,6 +190,20 @@ remain hidden from the agents. This case isolates the basic mechanism: given onl
 publicly published research feedback, do agents learn useful directions, avoid
 exact duplication, and decide when publication helps or hurts future search?
 
+The main success condition for this research scenario is top-peak coverage. If
+the landscape contains `K` peaks, the evaluator ranks all peaks by hidden height
+and selects the top three:
+
+```text
+TopPeaks = highest 3 peaks by h_m, or all peaks if K < 3.
+```
+
+The group succeeds when it discovers these top peaks. A top peak is counted as
+discovered if at least one agent reaches a point whose contribution from that
+peak is at least a fixed fraction of the peak height, for example `0.9 * h_m`.
+This means the benchmark rewards discovering the best research directions, not
+only finding one single best point.
+
 ## 8. Baselines
 
 The benchmark compares:
@@ -230,7 +245,25 @@ LLM Black-Box Agent:
 
 ## 9. Evaluation Metrics
 
-The primary metric is the highest value discovered by any agent across all
+The primary metric is top-peak coverage:
+
+```text
+top_peak_coverage = discovered_top_peaks / min(3, K).
+```
+
+By default, a top peak is considered discovered if:
+
+```text
+V_m(z_i,t) >= 0.9 * h_m
+```
+
+for at least one agent `i` and round `t`. Full success means:
+
+```text
+top_peak_coverage = 1.
+```
+
+The benchmark also reports the highest value discovered by any agent across all
 rounds:
 
 ```text
@@ -254,7 +287,7 @@ system_optimization = mean_score / max_peak_height.
 This gives a 0-to-1 indicator of how close the population's average score is to
 the known global optimum. It is useful diagnostically, but it is not the main
 success metric when the research question is whether the multi-agent system
-finds the best solution.
+covers the best opportunities.
 
 Diagnostic metrics include:
 

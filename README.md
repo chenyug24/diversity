@@ -32,8 +32,16 @@ S_i = V_i
 where `V_i` is hidden value. Diversity and origin distance are logged only as
 diagnostic metrics; they are not rewarded.
 
-The primary optimization metric is the highest value found by any agent at any
-round:
+The primary research-scenario success metric is whether the system discovers the
+highest-value peaks, not only whether it finds one best point. By default the
+target is the top three peaks by hidden peak height:
+
+```text
+top_peak_coverage = discovered_top_peaks / min(3, K)
+```
+
+A top peak is counted as discovered if any agent reaches at least 90% of that
+peak's height. The highest single value found is still logged:
 
 ```text
 best_value_found = max_{i,t} V(z_i,t)
@@ -93,7 +101,9 @@ researchers exploring a continuous hidden opportunity landscape.
 This first task asks whether public publication helps agents learn useful
 directions, or whether it mainly creates imitation around already published
 successes. The space is continuous, so nearby locations are allowed; only exact
-reuse of a public location is blocked.
+reuse of a public location is blocked. The main success condition is whether the
+group discovers the top three highest-value peaks, even when the landscape
+contains more than three peaks.
 
 Run it with:
 
@@ -102,7 +112,7 @@ python3 scripts/run_publication_case.py \
   --strategy score_following \
   --agents 6 \
   --rounds 20 \
-  --peaks 2 \
+  --peaks 5 \
   --dimensions 2 \
   --out results/publication_case
 ```

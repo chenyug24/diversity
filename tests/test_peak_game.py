@@ -8,11 +8,14 @@ import numpy as np
 
 from peak_divergence.core import PeakGameConfig, PeakLandscape
 from peak_divergence.game import (
+    discovered_peak_ids,
     level_to_capacity,
     run_game,
     score_positions,
     score_upper_bound,
     system_optimization_index,
+    top_peak_discovery_metrics,
+    top_peak_ids,
     value_positions,
 )
 from peak_divergence.publication_game import is_published_location, run_publication_game
@@ -145,6 +148,41 @@ class PeakDivergenceGameTests(unittest.TestCase):
         self.assertEqual(score_upper_bound(landscape, config), 10.0)
         self.assertEqual(system_optimization_index(scores, landscape, config), 1.0)
         self.assertNotEqual(float(origin[0]), float(origin[1]))
+
+    def test_top_peak_discovery_targets_highest_peaks(self):
+        config = PeakGameConfig(
+            num_agents=3,
+            dimensions=2,
+            num_peaks=4,
+            top_peak_count=3,
+            top_peak_discovery_fraction=0.90,
+        )
+        landscape = PeakLandscape(
+            centers=np.array(
+                [
+                    [0.0, 0.0],
+                    [10.0, 0.0],
+                    [20.0, 0.0],
+                    [30.0, 0.0],
+                ]
+            ),
+            heights=np.array([80.0, 120.0, 100.0, 110.0]),
+            widths=np.array([1.0, 1.0, 1.0, 1.0]),
+        )
+        positions = np.array(
+            [
+                [10.0, 0.0],  # highest peak, id 1
+                [30.0, 0.0],  # third-highest peak, id 3
+                [0.0, 0.0],   # not in top 3, id 0
+            ]
+        )
+        self.assertTrue(np.array_equal(top_peak_ids(landscape, config), np.array([1, 3, 2])))
+        discovered = discovered_peak_ids(positions, landscape, config)
+        metrics = top_peak_discovery_metrics(discovered, landscape, config)
+        self.assertEqual(metrics["top_peak_count"], 3.0)
+        self.assertEqual(metrics["top_peak_coverage_count"], 2.0)
+        self.assertEqual(metrics["top_peak_coverage_ratio"], 2.0 / 3.0)
+        self.assertEqual(metrics["top_peak_success"], 0.0)
 
     def test_capacity_levels(self):
         self.assertEqual(level_to_capacity(0, 8), 0)
